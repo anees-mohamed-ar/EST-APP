@@ -1,0 +1,717 @@
+import 'dart:convert';
+import 'package:dio/dio.dart';
+import 'package:get_storage/get_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+class ApiService {
+  /// Runtime-mutable base URL — can be changed from Dev Settings on the login screen.
+  static String baseUrl = _savedOrDefault();
+  static final storage = GetStorage();
+
+  static String _savedOrDefault() {
+    final stored = GetStorage().read<String>('dev_base_url');
+    if (stored != null && stored.isNotEmpty) return stored;
+
+    final defaultIp = dotenv.env['DEFAULT_SERVER_IP'] ?? '103.160.163.70';
+    final defaultPort = dotenv.env['DEFAULT_SERVER_PORT'] ?? '8002';
+    return 'http://$defaultIp:$defaultPort';
+  }
+
+  // Login endpoint - Use dedicated login endpoint for secure authentication
+  static Future<Map<String, dynamic>> login(
+    String username,
+    String password,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'username': username, 'password': password}),
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final errorData = json.decode(response.body);
+        return {
+          'success': false,
+          'message': errorData['error'] ?? 'Login failed',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+
+  // Get all users; pass date (YYYY-MM-DD) to include each user's attendance_count for that day
+  static Future<List<dynamic>> getUsers({String? date}) async {
+    try {
+      final uri = Uri.parse(
+        '$baseUrl/users',
+      ).replace(queryParameters: date != null ? {'date': date} : null);
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load users');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  static Future<List<dynamic>> getUsersOnly({String? date}) async {
+    try {
+      final queryParams = {
+        'users_only': 'true',
+        if (date != null) 'date': date,
+      };
+
+      final uri = Uri.parse(
+        '$baseUrl/users',
+      ).replace(queryParameters: queryParams);
+
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      throw Exception('Failed to load users');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get all attendance records
+  static Future<List<dynamic>> getAttendance() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/attendance'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to load attendance records');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get all sites
+  static Future<List<dynamic>> getSites() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/sites'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load sites');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Create attendance record with image upload (Dio — real-time progress)
+  static Future<Map<String, dynamic>> createAttendance(
+    Map<String, dynamic> attendanceData,
+    String imagePath, {
+    String? lat,
+    String? lang,
+    String? site,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    try {
+      final dio = Dio();
+      final formData = FormData.fromMap({
+        'user_id': attendanceData['user_id'].toString(),
+        'time': attendanceData['time'],
+        'date': attendanceData['date'],
+        if (lat != null) 'lat': lat,
+        if (lang != null) 'lang': lang,
+        if (site != null) 'site': site,
+        if (imagePath.isNotEmpty)
+          'image': await MultipartFile.fromFile(
+            imagePath,
+            filename: 'attendance.png',
+          ),
+      });
+
+      final response = await dio.post(
+        '$baseUrl/attendance',
+        data: formData,
+        onSendProgress: (sent, total) {
+          onProgress?.call(sent, total);
+        },
+      );
+
+      if (response.statusCode == 201)
+        return response.data as Map<String, dynamic>;
+      throw Exception('Failed to create attendance record: ${response.data}');
+    } on DioException catch (e) {
+      throw Exception('Upload failed: ${e.response?.data ?? e.message}');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Bulk attendance — one image, multiple user IDs (Dio — real-time progress).
+  static Future<Map<String, dynamic>> createBulkAttendance({
+    required List<int> userIds,
+    required String time,
+    required String date,
+    required String imagePath,
+    String? lat,
+    String? lang,
+    String? site,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    try {
+      final dio = Dio();
+      final formData = FormData.fromMap({
+        'user_ids': json.encode(userIds),
+        'time': time,
+        'date': date,
+        if (lat != null) 'lat': lat,
+        if (lang != null) 'lang': lang,
+        if (site != null) 'site': site,
+        if (imagePath.isNotEmpty)
+          'image': await MultipartFile.fromFile(
+            imagePath,
+            filename: 'attendance.png',
+          ),
+      });
+
+      final response = await dio.post(
+        '$baseUrl/attendance/bulk',
+        data: formData,
+        onSendProgress: (sent, total) {
+          onProgress?.call(sent, total);
+        },
+      );
+
+      if (response.statusCode == 201)
+        return response.data as Map<String, dynamic>;
+      throw Exception('Bulk attendance failed: ${response.data}');
+    } on DioException catch (e) {
+      throw Exception('Upload failed: ${e.response?.data ?? e.message}');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get today's attendance records for current user
+  static Future<List<dynamic>> getTodaysAttendance(int userId) async {
+    try {
+      final now = DateTime.now();
+      final dateStr =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+      final endpointUrl = '$baseUrl/attendance?userid=$userId&date=$dateStr';
+      print('📡 Frontend calling endpoint: $endpointUrl');
+
+      final response = await http.get(
+        Uri.parse(endpointUrl),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('📡 Response status: ${response.statusCode}');
+      print('📡 Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        List<dynamic> allRecords = json.decode(response.body);
+        print('📊 Raw records from API: $allRecords');
+
+        // Filter records for today's date and current user
+        final filteredRecords = allRecords
+            .where(
+              (record) =>
+                  record['date'] == dateStr && record['user_id'] == userId,
+            )
+            .toList();
+
+        print('📊 Filtered records for today: $filteredRecords');
+        return filteredRecords;
+      } else {
+        throw Exception('Failed to load attendance records');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get attendance summary for all dates for current user
+  static Future<List<dynamic>> getAttendanceSummary(int userId) async {
+    try {
+      final endpointUrl = '$baseUrl/attendance/summary/$userId';
+      print('📡 Frontend calling summary endpoint: $endpointUrl');
+
+      final response = await http.get(
+        Uri.parse(endpointUrl),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('📡 Summary response status: ${response.statusCode}');
+      print('📡 Summary response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        List<dynamic> summaryData = json.decode(response.body);
+        print('📊 Attendance summary data: $summaryData');
+        return summaryData;
+      } else {
+        throw Exception('Failed to load attendance summary');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get all users' attendance grouped by date (admin view)
+  // Optional date range filter and pagination
+  static Future<dynamic> getAdminAttendance({
+    String? startDate,
+    String? endDate,
+    int limit = 20,
+    int offset = 0,
+    String? search,
+  }) async {
+    try {
+      final queryParams = <String, String>{
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      };
+      if (startDate != null) queryParams['startDate'] = startDate;
+      if (endDate != null) queryParams['endDate'] = endDate;
+      if (search != null && search.isNotEmpty) queryParams['search'] = search;
+
+      final uri = Uri.parse(
+        '$baseUrl/admin/attendance',
+      ).replace(queryParameters: queryParams.isEmpty ? null : queryParams);
+
+      print('📡 Admin attendance endpoint: $uri');
+
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('📡 Admin attendance response: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to load admin attendance: ${response.body}');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // ── Groupings ────────────────────────────────────────────────────────────
+
+  /// Get all groupings, optionally filtered by date
+  static Future<List<dynamic>> getGroupings({String? date}) async {
+    try {
+      final uri = Uri.parse(
+        '$baseUrl/groupings',
+      ).replace(queryParameters: date != null ? {'date': date} : null);
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load groupings: ${response.body}');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Add employees under a manager for a specific date
+  static Future<Map<String, dynamic>> createGroupings({
+    required int managerId,
+    required List<int> employeeIds,
+    required String date,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/groupings'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'manager_id': managerId,
+          'employee_ids': employeeIds,
+          'date': date,
+        }),
+      );
+      if (response.statusCode == 201) return json.decode(response.body);
+      throw Exception('Failed to create groupings: ${response.body}');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Delete a single grouping row by id
+  static Future<void> deleteGrouping(int groupingId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/groupings/$groupingId'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode != 200) {
+        throw Exception('Failed to delete grouping: ${response.body}');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Delete all groupings for a manager on a specific date
+  static Future<void> deleteManagerGroupings({
+    required int managerId,
+    required String date,
+  }) async {
+    try {
+      final uri = Uri.parse(
+        '$baseUrl/groupings/manager/$managerId',
+      ).replace(queryParameters: {'date': date});
+      final response = await http.delete(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode != 200) {
+        throw Exception('Failed to delete groupings: ${response.body}');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Get all users (reused from existing getUsers, but typed for groupings)
+  static Future<List<dynamic>> getAllUsers() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/users'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load users: ${response.body}');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Update user profile (username, role, and optionally pfp)
+  static Future<Map<String, dynamic>> updateUserProfile({
+    required int userId,
+    required String username,
+    required String role,
+    String? password,
+    String? imagePath,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    try {
+      final dio = Dio();
+      final formData = FormData.fromMap({
+        'username': username,
+        'role': role,
+        if (password != null && password.isNotEmpty) 'password': password,
+        if (imagePath != null && imagePath.isNotEmpty)
+          'pfp': await MultipartFile.fromFile(
+            imagePath,
+            filename: 'pfp_${DateTime.now().millisecondsSinceEpoch}.png',
+          ),
+      });
+
+      final response = await dio.put(
+        '$baseUrl/users/$userId',
+        data: formData,
+        onSendProgress: (sent, total) {
+          onProgress?.call(sent, total);
+        },
+      );
+
+      if (response.statusCode == 200)
+        return response.data as Map<String, dynamic>;
+      throw Exception('Failed to update profile: ${response.data}');
+    } on DioException catch (e) {
+      throw Exception('Update failed: ${e.response?.data ?? e.message}');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get admin monthly summary for selected users
+  static Future<Map<String, dynamic>> getAdminMonthlySummary(
+    List<int> userIds, {
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      final queryParams = <String, String>{};
+      queryParams['user_ids'] = json.encode(userIds);
+
+      if (startDate != null) {
+        queryParams['start_date'] =
+            '${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}';
+      }
+      if (endDate != null) {
+        queryParams['end_date'] =
+            '${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}';
+      }
+
+      final uri = Uri.parse(
+        '$baseUrl/admin/monthly-summary',
+      ).replace(queryParameters: queryParams.isEmpty ? null : queryParams);
+
+      print('📡 Frontend calling admin monthly summary: $uri');
+
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('📡 Admin monthly summary response status: ${response.statusCode}');
+      print('📡 Admin monthly summary response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        Map<String, dynamic> summaryData = json.decode(response.body);
+        print('📊 Admin monthly summary data: $summaryData');
+        return summaryData;
+      } else {
+        throw Exception('Failed to load admin monthly summary');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get monthly total hours worked and OT for current month
+  static Future<Map<String, dynamic>> getMonthlyAttendance(
+    int userId, {
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      final queryParams = <String, String>{};
+      if (startDate != null) {
+        queryParams['start_date'] =
+            '${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}';
+      }
+      if (endDate != null) {
+        queryParams['end_date'] =
+            '${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}';
+      }
+
+      final uri = Uri.parse(
+        '$baseUrl/attendance/monthly/$userId',
+      ).replace(queryParameters: queryParams.isEmpty ? null : queryParams);
+
+      print('📡 Frontend calling monthly endpoint: $uri');
+
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('📡 Monthly response status: ${response.statusCode}');
+      print('📡 Monthly response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        Map<String, dynamic> monthlyData = json.decode(response.body);
+        print('📊 Monthly attendance data: $monthlyData');
+        return monthlyData;
+      } else {
+        throw Exception('Failed to load monthly attendance');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get monthly summary for payroll (matches web dashboard)
+  static Future<Map<String, dynamic>> getMonthlySummary(
+    int userId, {
+    String? yearMonth, // Format: YYYY-MM
+  }) async {
+    try {
+      final queryParams = <String, String>{};
+      queryParams['user_id'] = userId.toString();
+      if (yearMonth != null) {
+        queryParams['year_month'] = yearMonth;
+      }
+
+      final uri = Uri.parse(
+        '$baseUrl/monthly-summary',
+      ).replace(queryParameters: queryParams);
+
+      print('📡 Frontend calling monthly summary: $uri');
+
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('📡 Monthly summary response status: ${response.statusCode}');
+      print('📡 Monthly summary response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        Map<String, dynamic> summaryData = json.decode(response.body);
+        print('📊 Monthly summary data: $summaryData');
+        return summaryData;
+      } else if (response.statusCode == 404) {
+        // Return empty data structure for 404 (no monthly record found)
+        print('📊 No monthly record found, returning empty data');
+        return {
+          'attendance': {
+            'total_complete_days': 0,
+            'total_days_present': 0,
+            'total_sunday_days': 0,
+          },
+          'formatted': {
+            'total_regular': '0h 0m',
+            'total_overtime': '0h 0m',
+            'total_weekday_ot': '0h 0m',
+            'total_sunday_ot': '0h 0m',
+          },
+          'days': [],
+        };
+      } else {
+        throw Exception('Failed to load monthly summary');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get monthly performance 
+  static Future<Map<String, dynamic>> getMonthlyPerformance(
+    int userId, {
+    String? yearMonth,
+  }) async {
+    try {
+      final queryParams = <String, String>{};
+      queryParams['user_id'] = userId.toString();
+      if (yearMonth != null) {
+        queryParams['year_month'] = yearMonth;
+      }
+      final uri = Uri.parse('$baseUrl/monthly-performance').replace(queryParameters: queryParams);
+      final response = await http.get(uri, headers: {'Content-Type': 'application/json'});
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  // Get dashboard stats for admin
+  static Future<Map<String, dynamic>> getDashboardStats() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/dashboard/stats'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('📡 Dashboard stats response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        Map<String, dynamic> statsData = json.decode(response.body);
+        print('📊 Dashboard stats data: $statsData');
+        return statsData;
+      } else {
+        throw Exception('Failed to load dashboard stats');
+      }
+    } catch (e) {
+      print('❌ Error fetching dashboard stats: $e');
+      throw e;
+    }
+  }
+
+  // Get active sites for today
+  static Future<List<dynamic>> getActiveSites() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/sites/active'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('📡 Active sites response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        List<dynamic> sitesData = json.decode(response.body);
+        print('📊 Active sites data: $sitesData');
+        return sitesData;
+      } else {
+        throw Exception('Failed to load active sites');
+      }
+    } catch (e) {
+      print('❌ Error fetching active sites: $e');
+      throw e;
+    }
+  }
+
+  // Get daily breakdown for payroll (matches web dashboard)
+  static Future<Map<String, dynamic>> getDailyBreakdown(
+    int userId, {
+    String? yearMonth, // Format: YYYY-MM
+  }) async {
+    try {
+      final queryParams = <String, String>{};
+      queryParams['user_id'] = userId.toString();
+      if (yearMonth != null) {
+        queryParams['year_month'] = yearMonth;
+      }
+
+      final uri = Uri.parse(
+        '$baseUrl/daily-breakdown',
+      ).replace(queryParameters: queryParams);
+
+      print('📡 Frontend calling daily breakdown: $uri');
+
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('📡 Daily breakdown response status: ${response.statusCode}');
+      print('📡 Daily breakdown response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        Map<String, dynamic> breakdownData = json.decode(response.body);
+        print('📊 Daily breakdown data: $breakdownData');
+        return breakdownData;
+      } else if (response.statusCode == 404) {
+        // Return empty data structure for 404 (no daily records found)
+        print('📊 No daily breakdown found, returning empty data');
+        return {'days': []};
+      } else {
+        throw Exception('Failed to load daily breakdown');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+  // Get all holidays
+  static Future<List<dynamic>> getHolidays() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/holidays'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to load holidays');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+}
