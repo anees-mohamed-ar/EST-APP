@@ -4,12 +4,12 @@ import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import 'camera_page.dart';
 
-/// Shown when a manager taps Check-In or Check-Out.
+/// Shown when a Multi User taps Check-In or Check-Out.
 /// 1. Loads all users with today's attendance count.
-/// 2. Manager picks employees to include (searchable list).
+/// 2. Multi User picks employees to include (searchable list).
 /// 3. Navigates to camera internally.
 /// 4. Returns {'imagePath': String, 'selectedIds': List<int>} to caller,
-///    where selectedIds already includes the manager's own ID.
+///    where selectedIds already includes the Multi User's own ID.
 class EmployeeSelectionPage extends StatefulWidget {
   final String action;
   final int managerId;
@@ -21,7 +21,8 @@ class EmployeeSelectionPage extends StatefulWidget {
     required Function(double) onProgress,
     required Function(String status) onStatusUpdate,
     required List<int> userIds,
-  })? onConfirm;
+  })?
+  onConfirm;
 
   const EmployeeSelectionPage({
     required this.action,
@@ -64,9 +65,10 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
     if (_query.isEmpty) return allUsers;
     final q = _query.toLowerCase();
     return allUsers.where((u) {
-      final name = (u['username'] ?? '').toString().toLowerCase();
+      final username = (u['username'] ?? '').toString().toLowerCase();
+      final fullName = (u['full_name'] ?? '').toString().toLowerCase();
       final role = (u['role'] ?? '').toString().toLowerCase();
-      return name.contains(q) || role.contains(q);
+      return username.contains(q) || fullName.contains(q) || role.contains(q);
     }).toList();
   }
 
@@ -113,15 +115,16 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
   Future<void> _loadSites() async {
     try {
       final s = await ApiService.getSites();
-      if (mounted) setState(() {
-        sites = s;
-      });
+      if (mounted)
+        setState(() {
+          sites = s;
+        });
     } catch (_) {}
   }
 
   Future<void> _proceed() async {
     if (proceeding) return;
-    
+
     String? chosenSite;
     if (sites.isNotEmpty) {
       String searchQuery = '';
@@ -135,14 +138,15 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
           return StatefulBuilder(
             builder: (ctx, setStateBtm) {
               final query = searchQuery.toLowerCase().trim();
-              
+
               final filteredSites = sites.where((s) {
                 if (query.isEmpty) return true;
                 if (searchById) {
                   final siteId = (s['site_id']?.toString() ?? '').toLowerCase();
                   return siteId.startsWith(query);
                 } else {
-                  final siteName = (s['site_name']?.toString() ?? '').toLowerCase();
+                  final siteName = (s['site_name']?.toString() ?? '')
+                      .toLowerCase();
                   return siteName.contains(query);
                 }
               }).toList();
@@ -173,14 +177,18 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
                       decoration: BoxDecoration(
                         color: active ? _textPrimary : Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: active ? _textPrimary : _border),
+                        border: Border.all(
+                          color: active ? _textPrimary : _border,
+                        ),
                       ),
                       alignment: Alignment.center,
                       child: Text(
                         label,
                         style: TextStyle(
                           color: active ? _card : _textSecond,
-                          fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                          fontWeight: active
+                              ? FontWeight.w600
+                              : FontWeight.w500,
                           fontSize: 13,
                         ),
                       ),
@@ -190,20 +198,30 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
               }
 
               return Container(
-                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.8,
+                ),
                 decoration: const BoxDecoration(
                   color: _card,
                   borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                 ),
                 padding: EdgeInsets.only(
-                  top: 24, left: 16, right: 16,
+                  top: 24,
+                  left: 16,
+                  right: 16,
                   bottom: MediaQuery.of(context).viewInsets.bottom + 16,
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('Select Site for Check-in', 
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textPrimary)),
+                    const Text(
+                      'Select Site for Check-in',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _textPrimary,
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -216,8 +234,13 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
                     TextField(
                       controller: searchCtrl,
                       decoration: InputDecoration(
-                        hintText: searchById ? 'Search by Site ID' : 'Search by Site Name',
-                        prefixIcon: const Icon(Icons.search, color: _textPrimary),
+                        hintText: searchById
+                            ? 'Search by Site ID'
+                            : 'Search by Site Name',
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: _textPrimary,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: const BorderSide(color: _border),
@@ -226,7 +249,10 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
                           borderRadius: BorderRadius.circular(12),
                           borderSide: const BorderSide(color: _textPrimary),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 0,
+                          horizontal: 16,
+                        ),
                       ),
                       onChanged: (val) {
                         setStateBtm(() {
@@ -238,36 +264,60 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
                     const SizedBox(height: 16),
                     Flexible(
                       child: filteredSites.isEmpty
-                        ? Padding(
-                            padding: const EdgeInsets.all(24.0),
-                            child: Text('No sites found', style: TextStyle(color: _textSecond)),
-                          )
-                        : ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: filteredSites.length,
-                            separatorBuilder: (_,__) => const Divider(color: _border),
-                            itemBuilder: (ctx, i) {
-                              final s = filteredSites[i];
-                              return ListTile(
-                                leading: const Icon(Icons.location_on_outlined, color: _red),
-                                title: Text(s['site_name'], style: const TextStyle(color: _textPrimary, fontWeight: FontWeight.w500)),
-                                trailing: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: _textPrimary.withOpacity(0.05),
-                                    borderRadius: BorderRadius.circular(8),
+                          ? Padding(
+                              padding: const EdgeInsets.all(24.0),
+                              child: Text(
+                                'No sites found',
+                                style: TextStyle(color: _textSecond),
+                              ),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: filteredSites.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(color: _border),
+                              itemBuilder: (ctx, i) {
+                                final s = filteredSites[i];
+                                return ListTile(
+                                  leading: const Icon(
+                                    Icons.location_on_outlined,
+                                    color: _red,
                                   ),
-                                  child: Text('ID: ${s['site_id'] ?? ''}', style: const TextStyle(fontSize: 12, color: _textPrimary, fontWeight: FontWeight.w600)),
-                                ),
-                                onTap: () => Navigator.pop(ctx, s['site_name']),
-                              );
-                            },
-                          ),
+                                  title: Text(
+                                    s['site_name'],
+                                    style: const TextStyle(
+                                      color: _textPrimary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  trailing: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _textPrimary.withOpacity(0.05),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      'ID: ${s['site_id'] ?? ''}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: _textPrimary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  onTap: () =>
+                                      Navigator.pop(ctx, s['site_name']),
+                                );
+                              },
+                            ),
                     ),
                   ],
                 ),
               );
-            }
+            },
           );
         },
       );
@@ -280,20 +330,22 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
     setState(() => proceeding = true);
     try {
       final finalSelectedIds = [widget.managerId, ...selectedIds.toList()];
-      
-      final cameraResult = await Get.to(() => CameraPage(
-        siteName: chosenSite,
-        userIds: finalSelectedIds,
-        isBulk: true,
-      ));
+
+      final cameraResult = await Get.to(
+        () => CameraPage(
+          siteName: chosenSite,
+          userIds: finalSelectedIds,
+          isBulk: true,
+        ),
+      );
 
       if (cameraResult == null || cameraResult is! Map) {
         return;
       }
-      
+
       if (cameraResult['success'] == true) {
-         Get.back(result: cameraResult);
-         return;
+        Get.back(result: cameraResult);
+        return;
       }
 
       Get.back(
@@ -381,7 +433,7 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
                                 ),
                               ),
                               Text(
-                                'Manager: ${widget.managerName}',
+                                'Multi User: ${widget.managerName}',
                                 style: const TextStyle(
                                   fontSize: 12,
                                   color: _textSecond,
@@ -625,7 +677,7 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Manager info chip
+              // Multi User info chip
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
@@ -676,6 +728,7 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
   Widget _buildUserTile(dynamic user) {
     final uid = user['id'] as int;
     final name = user['username'] ?? 'Unknown';
+    final fullName = user['full_name'] ?? '';
     final role = user['role'] ?? '';
     final status = _statusFor(user);
     final isSelected = selectedIds.contains(uid);
@@ -809,7 +862,21 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       nameWidget,
-                      const SizedBox(height: 2),
+                      if (fullName.isNotEmpty && fullName != name)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1),
+                          child: Text(
+                            fullName,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: status.eligible
+                                  ? _textSecond
+                                  : _textSecond.withOpacity(0.6),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 3),
                       Row(
                         children: [
                           Container(

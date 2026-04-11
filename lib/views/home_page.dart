@@ -8,17 +8,24 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/api_service.dart';
+import '../services/location_service.dart';
 import 'employee_selection_page.dart';
 import 'camera_page.dart';
 import 'settings_page.dart';
+import 'daily_attendance_page.dart';
 
 class HomePage extends StatefulWidget {
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
+class _HomePageState extends State<HomePage>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final storage = GetStorage();
+  final LocationService _locationService = LocationService();
+  bool _isLocationEnabled = true;
+  StreamSubscription? _locationSub;
+
   List<dynamic> todaysRecords = [];
   bool isLoadingAttendance = true;
 
@@ -69,12 +76,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   bool _isStreakFlying = false;
   final GlobalKey _streakTargetKey = GlobalKey();
 
+  // Pulse animation for streak pill (Breathing effect)
+  late final AnimationController _fireController;
+
   // Carousel controller for streak cards
   final PageController _streakPageController = PageController();
   int _currentStreakPage = 0;
   int _displayedStreakCount = 0;
   final ScrollController _scrollController = ScrollController();
-  late final AnimationController  _fireController;
 
   // Accent colors kept subtle
   static const Color _softGreen = Color(0xFF29A331);
@@ -83,6 +92,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _locationService.init();
+    _checkInitialLocation();
+    _locationSub = _locationService.onServiceStatusChanged.listen((enabled) {
+      if (mounted) setState(() => _isLocationEnabled = enabled);
+    });
+
     _loadTodayAttendance();
     _loadMonthlyAttendance();
     _loadMonthlyPerformance();
@@ -109,11 +125,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    _fireController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    )..repeat();
-
     _streakFlyController = AnimationController(
       duration: const Duration(milliseconds: 3500),
       vsync: this,
@@ -123,17 +134,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       curve: Curves.easeInOutQuart,
     );
 
+    _fireController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    )..repeat();
+
     _streakFlyController.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         _vibrationTimer?.cancel();
         _vibrationTimer = null;
         HapticFeedback.vibrate(); // Strong buzz upon landing
-        
+
         setState(() {
           _isStreakFlying = false;
           // Update the count only after landing
           if (performanceData?['streak'] != null) {
-            _displayedStreakCount = (performanceData!['streak']['current_streak'] ?? 0);
+            _displayedStreakCount =
+                (performanceData!['streak']['current_streak'] ?? 0);
           }
         });
         _streakFlyController.reset();
@@ -158,7 +175,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('📍 App resumed: Re-checking location status...');
+      _checkInitialLocation();
+    }
+  }
+
+  Future<void> _checkInitialLocation() async {
+    final enabled = await _locationService.isLocationEnabled();
+    if (mounted) setState(() => _isLocationEnabled = enabled);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _locationSub?.cancel();
     _clockTimer.cancel();
     _carouselTimer.cancel();
     _timeShimmerController.dispose();
@@ -414,7 +446,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         username: userData['username'],
         role: userData['role'],
         imagePath: image.path,
-        onProgress: (sent, total) => setState(() => _uploadProgress = total > 0 ? sent / total : 0),
+        onProgress: (sent, total) =>
+            setState(() => _uploadProgress = total > 0 ? sent / total : 0),
       );
 
       final allUsers = await ApiService.getUsers();
@@ -710,11 +743,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     color: _charcoal,
                   ),
                 ),
-                if ((userData['full_name'] ?? userData['employee_name']) != null)
+                if ((userData['full_name'] ?? userData['employee_name']) !=
+                    null)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
-                      (userData['full_name'] ?? userData['employee_name']).toString(),
+                      (userData['full_name'] ?? userData['employee_name'])
+                          .toString(),
                       style: const TextStyle(
                         fontSize: 12,
                         color: _mediumGray,
@@ -743,6 +778,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 const SizedBox(height: 8),
                 ListTile(
                   leading: const Icon(
+                    Icons.person_outline,
+                    color: _charcoal,
+                    size: 24,
+                  ),
+                  title: const Text(
+                    'Profile',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: _charcoal,
+                    ),
+                  ),
+                  onTap: () {
+                    Get.back();
+                    Get.toNamed('/profile');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
                     Icons.beach_access_outlined,
                     color: _charcoal,
                     size: 24,
@@ -758,6 +812,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   onTap: () {
                     Get.back();
                     Get.toNamed('/holidays');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.leaderboard_outlined,
+                    color: _charcoal,
+                    size: 24,
+                  ),
+                  title: const Text(
+                    'OT Leaderboard',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: _charcoal,
+                    ),
+                  ),
+                  onTap: () {
+                    Get.back();
+                    Get.toNamed('/leaderboard');
                   },
                 ),
                 ListTile(
@@ -995,6 +1068,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
 
             _buildFlyingFire(),
+
+            if (!_isLocationEnabled)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: _buildLocationWarningBanner(),
+              ),
 
             if (_uploadProgress != null)
               _buildUploadOverlay(_uploadProgress!, _uploadStatus),
@@ -1399,6 +1480,110 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildLocationWarningBanner() {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: _pureWhite,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: _softRed.withOpacity(0.15),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+              BoxShadow(
+                color: _pureBlack.withOpacity(0.05),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+            border: Border.all(color: _softRed.withOpacity(0.1), width: 1.5),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _softRed.withOpacity(0.08),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.location_off_rounded,
+                  color: _softRed,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'GPS Service is Off',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: _charcoal,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Attendance features are locked.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: _mediumGray.withOpacity(0.9),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  await _locationService.requestService();
+                  bool actuallyEnabled = await _locationService
+                      .isLocationEnabled();
+                  if (mounted) {
+                    setState(() => _isLocationEnabled = actuallyEnabled);
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _softRed,
+                  foregroundColor: _pureWhite,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'ENABLE',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildProfileCard(
     String greeting,
     String name,
@@ -1408,256 +1593,283 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final userData = storage.read('user');
     final pfp = userData?['pfp'];
 
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: _pureWhite,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: _lightGray, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: _pureBlack.withOpacity(0.02),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Greeting and Greeting Card logic
-              Text(
-                greeting,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: _mediumGray,
-                  fontWeight: FontWeight.w400,
+    return RepaintBoundary(
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: _pureWhite,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: _lightGray, width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: _pureBlack.withOpacity(0.02),
+              blurRadius: 20,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Greeting and Greeting Card logic
+                Text(
+                  greeting,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _mediumGray,
+                    fontWeight: FontWeight.w400,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-              // Profile Row
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  GestureDetector(
-                    onTap: _changePfp,
-                    child: Stack(
-                      children: [
-                        GestureDetector(
-                          onTap: pfp != null ? _previewPfp : null,
-                          child: Container(
-                            width: 64,
-                            height: 64,
-                            decoration: BoxDecoration(
-                              color: _offWhite,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: _lightGray, width: 1.5),
-                            ),
-                            child: ClipOval(
-                              child: pfp != null
-                                  ? CachedNetworkImage(
-                                      imageUrl: '${ApiService.baseUrl}$pfp',
-                                      fit: BoxFit.cover,
-                                      placeholder: (context, url) => Container(
-                                        color: _offWhite,
-                                        child: Icon(
+                // Profile Row
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    GestureDetector(
+                      onTap: _changePfp,
+                      child: Stack(
+                        children: [
+                          GestureDetector(
+                            onTap: pfp != null ? _previewPfp : null,
+                            child: Container(
+                              width: 64,
+                              height: 64,
+                              decoration: BoxDecoration(
+                                color: _offWhite,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: _lightGray,
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: ClipOval(
+                                child: pfp != null
+                                    ? CachedNetworkImage(
+                                        imageUrl: '${ApiService.baseUrl}$pfp',
+                                        fit: BoxFit.cover,
+                                        placeholder: (context, url) =>
+                                            Container(
+                                              color: _offWhite,
+                                              child: Icon(
+                                                Icons.person_outline,
+                                                color: _mediumGray,
+                                                size: 32,
+                                              ),
+                                            ),
+                                        errorWidget: (_, __, ___) => Icon(
                                           Icons.person_outline,
                                           color: _mediumGray,
                                           size: 32,
                                         ),
-                                      ),
-                                      errorWidget: (_, __, ___) => Icon(
-                                        Icons.person_outline,
-                                        color: _mediumGray,
-                                        size: 32,
-                                      ),
-                                    )
-                                  : Center(
-                                      child: Text(
-                                        name.isNotEmpty
-                                            ? name[0].toUpperCase()
-                                            : '?',
-                                        style: const TextStyle(
-                                          color: _charcoal,
-                                          fontSize: 26,
-                                          fontWeight: FontWeight.bold,
+                                      )
+                                    : Center(
+                                        child: Text(
+                                          name.isNotEmpty
+                                              ? name[0].toUpperCase()
+                                              : '?',
+                                          style: const TextStyle(
+                                            color: _charcoal,
+                                            fontSize: 26,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
-                                    ),
+                              ),
                             ),
                           ),
-                        ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: _pureWhite,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: _lightGray, width: 1),
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: _pureWhite,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: _lightGray, width: 1),
+                              ),
+                              child: const Icon(
+                                Icons.edit_outlined,
+                                size: 12,
+                                color: _charcoal,
+                              ),
                             ),
-                            child: const Icon(
-                              Icons.edit_outlined,
-                              size: 12,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w600,
                               color: _charcoal,
                             ),
                           ),
-                        ),
-                      ],
+                          if ((userData?['full_name'] ??
+                                  userData?['employee_name']) !=
+                              null)
+                            Text(
+                              (userData?['full_name'] ??
+                                      userData?['employee_name'])
+                                  .toString(),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: _mediumGray,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _offWhite,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: _lightGray, width: 1),
+                            ),
+                            child: Text(
+                              role.toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: _mediumGray,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
+                  ],
+                ),
+
+                const SizedBox(height: 24),
+
+                // Date and Time Footer (Strictly preserved)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          name,
+                          DateFormat('EEEE').format(now),
                           style: const TextStyle(
-                            fontSize: 22,
+                            fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: _charcoal,
                           ),
                         ),
-                        if ((userData?['full_name'] ?? userData?['employee_name']) != null)
-                          Text(
-                            (userData?['full_name'] ?? userData?['employee_name']).toString(),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: _mediumGray,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _offWhite,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: _lightGray, width: 1),
-                          ),
-                          child: Text(
-                            role.toUpperCase(),
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: _mediumGray,
-                            ),
+                        Text(
+                          DateFormat('MMM d, yyyy').format(now),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _mediumGray,
+                            fontWeight: FontWeight.w400,
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              // Date and Time Footer (Strictly preserved)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        DateFormat('EEEE').format(now),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: _charcoal,
+                    RepaintBoundary(
+                      child: AnimatedBuilder(
+                        animation: _timeShimmerAnimation,
+                        builder: (context, child) {
+                          final v = _timeShimmerAnimation.value;
+                          return ShaderMask(
+                            blendMode: BlendMode.srcIn,
+                            shaderCallback: (bounds) => LinearGradient(
+                              colors: [_pureBlack, _mediumGray, _pureBlack],
+                              stops: const [0.0, 0.5, 1.0],
+                              begin: Alignment(v - 0.35, 0),
+                              end: Alignment(v + 0.35, 0),
+                            ).createShader(bounds),
+                            child: child,
+                          );
+                        },
+                        child: Text(
+                          DateFormat('hh:mm a').format(now),
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: _pureBlack,
+                            letterSpacing: -0.5,
+                          ),
                         ),
                       ),
-                      Text(
-                        DateFormat('MMM d, yyyy').format(now),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _mediumGray,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ],
-                  ),
-                  AnimatedBuilder(
-                    animation: _timeShimmerAnimation,
-                    builder: (context, child) {
-                      final v = _timeShimmerAnimation.value;
-                      return ShaderMask(
-                        blendMode: BlendMode.srcIn,
-                        shaderCallback: (bounds) => LinearGradient(
-                          colors: [_pureBlack, _mediumGray, _pureBlack],
-                          stops: const [0.0, 0.5, 1.0],
-                          begin: Alignment(v - 0.35, 0),
-                          end: Alignment(v + 0.35, 0),
-                        ).createShader(bounds),
-                        child: child,
-                      );
-                    },
-                    child: Text(
-                      DateFormat('hh:mm a').format(now),
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: _pureBlack,
-                        letterSpacing: -0.5,
-                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+                  ],
+                ),
+              ],
+            ),
 
-          // Streak Badge Top-Right
-          Positioned(
-            top: -4,
-            right: -4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: _pureBlack,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: _pureBlack.withOpacity(0.2),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    key: _streakTargetKey,
-                    Icons.local_fire_department,
-                    color: _pureWhite,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '$_displayedStreakCount',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: _pureWhite,
+            Positioned(
+              top: -4,
+              right: -4,
+              child: AnimatedBuilder(
+                animation: _timeShimmerAnimation,
+                builder: (context, child) {
+                  final v = _timeShimmerAnimation.value;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
                     ),
-                  ),
-                ],
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [_pureBlack, _mediumGray, _pureBlack],
+                        stops: const [0.0, 0.5, 1.0],
+                        begin: Alignment(v - 0.35, 0),
+                        end: Alignment(v + 0.35, 0),
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _pureBlack.withOpacity(0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: RepaintBoundary(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            key: _streakTargetKey,
+                            Icons.local_fire_department,
+                            color: _pureWhite,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '$_displayedStreakCount',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: _pureWhite,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1668,99 +1880,101 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     String? firstIn,
     String? lastOut,
   ) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: _pureWhite,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: _lightGray, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: _pureBlack.withOpacity(0.02),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                "Today's Status",
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: _charcoal,
+    return RepaintBoundary(
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: _pureWhite,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: _lightGray, width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: _pureBlack.withOpacity(0.02),
+              blurRadius: 20,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Today's Status",
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: _charcoal,
+                  ),
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: hasCheckedIn ? _offWhite : _pureWhite,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: _lightGray, width: 1),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: hasCheckedOut
-                            ? _softGreen
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: hasCheckedIn ? _offWhite : _pureWhite,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: _lightGray, width: 1),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: hasCheckedOut
+                              ? _softGreen
+                              : hasCheckedIn
+                              ? _softGreen
+                              : _mediumGray,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        hasCheckedOut
+                            ? 'Shift Complete'
                             : hasCheckedIn
-                            ? _softGreen
-                            : _mediumGray,
+                            ? 'Active'
+                            : 'Not started',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: hasCheckedIn ? _charcoal : _mediumGray,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      hasCheckedOut
-                          ? 'Shift Complete'
-                          : hasCheckedIn
-                          ? 'Active'
-                          : 'Not started',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: hasCheckedIn ? _charcoal : _mediumGray,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: _buildTimeChip(
-                  'Check In',
-                  firstIn,
-                  Icons.login_outlined,
-                  _softGreen,
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildTimeChip(
+                    'Check In',
+                    firstIn,
+                    Icons.login_outlined,
+                    _softGreen,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTimeChip(
-                  'Check Out',
-                  lastOut,
-                  Icons.logout_outlined,
-                  _softRed,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildTimeChip(
+                    'Check Out',
+                    lastOut,
+                    Icons.logout_outlined,
+                    _softRed,
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1806,6 +2020,65 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildCheckInButton(bool hasCheckedOut) {
+    if (!_isLocationEnabled) {
+      return GestureDetector(
+        onTap: () async {
+          debugPrint('📍 Location card tapped: Triggering system popup...');
+          await _locationService.requestService();
+          // ALWAYS do a fresh check after the request finishes/settings close
+          bool actuallyEnabled = await _locationService.isLocationEnabled();
+          if (mounted) {
+            setState(() => _isLocationEnabled = actuallyEnabled);
+          }
+        },
+        child: Container(
+          height: 140,
+          decoration: BoxDecoration(
+            color: _offWhite,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: _lightGray, width: 1.5),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: _softRed.withOpacity(0.08),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.location_off_rounded,
+                  size: 24,
+                  color: _softRed,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Location Disabled',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: _charcoal,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'GPS is required',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _mediumGray.withOpacity(0.8),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final hasRecord = todaysRecords.isNotEmpty;
 
     // ── State 3: Shift Complete ─────────────────────────────────────────────
@@ -2223,108 +2496,30 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     return Column(
       children: [
+        // Top Insight Carousel
         Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [_charcoal, _pureBlack],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: _charcoal.withOpacity(0.2),
-                blurRadius: 15,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.emoji_events_rounded,
-                  color: Colors.amber,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Top Day of the Month',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      topDayName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (topDayDuration.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    topDayDuration,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          height: 380,
+          height: 110,
+          decoration: const BoxDecoration(color: Colors.transparent),
           child: PageView(
             controller: _streakPageController,
             onPageChanged: (idx) {
               if (mounted) setState(() => _currentStreakPage = idx);
             },
             children: [
-              _buildStreakGridSlide(
-                formattedMonth,
+              // Slide 1: Top Day
+              _buildTopDaySlide(topDayName, topDayDuration, formattedMonth),
+              // Slide 2: Monthly Attendance & Streak
+              _buildAttendanceSlide(
                 presentDays,
                 currentDay,
-                numDays,
-                now,
-                monthDataMap,
-                topDayDate,
+                formattedMonth,
+                _displayedStreakCount,
               ),
-              _buildContinuousStreakSlide(currentStreak),
             ],
           ),
         ),
         const SizedBox(height: 12),
+        // Indicator
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(2, (index) {
@@ -2332,15 +2527,231 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               duration: const Duration(milliseconds: 300),
               margin: const EdgeInsets.symmetric(horizontal: 4),
               width: _currentStreakPage == index ? 24 : 8,
-              height: 8,
+              height: 4,
               decoration: BoxDecoration(
                 color: _currentStreakPage == index ? _charcoal : _lightGray,
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: BorderRadius.circular(2),
               ),
             );
           }),
         ),
+        const SizedBox(height: 16),
+        // Static Streak Grid
+        _buildStreakGridSlide(
+          formattedMonth,
+          presentDays,
+          currentDay,
+          numDays,
+          now,
+          monthDataMap,
+          topDayDate,
+        ),
       ],
+    );
+  }
+
+  Widget _buildTopDaySlide(
+    String topDayName,
+    String topDayDuration,
+    String formattedMonth,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      decoration: BoxDecoration(
+        color: _charcoal,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: _pureBlack.withOpacity(0.35),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 56,
+            height: 56,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CustomPaint(
+                  size: const Size(56, 56),
+                  painter: _RingPainter(
+                    progress: _parseDurationProgress(topDayDuration),
+                    color: _softRed,
+                  ),
+                ),
+                const Icon(
+                  Icons.emoji_events_rounded,
+                  color: _pureWhite,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'TOP DAY OF THE MONTH',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: _mediumGray,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  topDayName,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: _pureWhite,
+                  ),
+                ),
+                Text(
+                  'Peak performance in $formattedMonth',
+                  style: const TextStyle(fontSize: 12, color: _mediumGray),
+                ),
+              ],
+            ),
+          ),
+          if (topDayDuration.isNotEmpty)
+            _buildInsightPill(
+              topDayDuration
+                  .split(topDayDuration.contains('h') ? 'h' : 'm')[0]
+                  .replaceAll(RegExp(r'[^0-9]'), '')
+                  .trim(),
+              topDayDuration.contains('h') ? 'HOURS' : 'MINS',
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttendanceSlide(
+    int presentDays,
+    int currentDay,
+    String formattedMonth,
+    int streak,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      decoration: BoxDecoration(
+        color: _charcoal,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: _pureBlack.withOpacity(0.35),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 56,
+            height: 56,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CustomPaint(
+                  size: const Size(56, 56),
+                  painter: _RingPainter(
+                    progress: currentDay > 0 ? presentDays / currentDay : 0,
+                    color: _softRed,
+                  ),
+                ),
+                Text(
+                  '${((currentDay > 0 ? presentDays / currentDay : 0) * 100).round()}%',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: _pureWhite,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'MONTHLY ATTENDANCE',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: _mediumGray,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$presentDays Days Present',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: _pureWhite,
+                  ),
+                ),
+                Text(
+                  'Total records for $formattedMonth',
+                  style: const TextStyle(fontSize: 12, color: _mediumGray),
+                ),
+              ],
+            ),
+          ),
+          _buildInsightPill('$streak', 'STREAK'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInsightPill(String value, String unit) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: _softRed,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: _pureWhite,
+              height: 1,
+            ),
+          ),
+          Text(
+            unit,
+            style: const TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              color: Colors.white70,
+              letterSpacing: 0.5,
+              height: 1.3,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2418,7 +2829,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '$presentDays / $currentDay',
+                      '$_displayedStreakCount',
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -2493,53 +2904,77 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
               final isTopDay = topDayDate != null && dateStr == topDayDate;
 
-              return Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: isTopDay ? _pureBlack : bgColor,
-                      borderRadius: BorderRadius.circular(10),
-                      border: isTopDay 
-                          ? Border.all(color: Colors.orange.withOpacity(0.5), width: 1.5)
-                          : (isFuture ? Border.all(color: _lightGray.withOpacity(0.5)) : null),
-                      boxShadow: isTopDay ? [
-                        BoxShadow(
-                          color: Colors.orange.withOpacity(0.3),
-                          blurRadius: 10,
-                          spreadRadius: 2,
-                        )
-                      ] : null,
-                    ),
-                    alignment: Alignment.center,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      clipBehavior: Clip.none,
-                      children: [
-                        if (isTopDay)
-                           Positioned.fill(
-                             child: BurningFireWidget(animation: _fireController),
-                           ),
-                        Text(
-                          dayNum.toString(),
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: (isPresent || isTopDay)
-                                ? FontWeight.w900
-                                : (isFuture ? FontWeight.w500 : FontWeight.w700),
-                            color: isTopDay ? _pureWhite : textColor,
-                            shadows: isTopDay ? [
-                              const Shadow(
-                                color: Colors.black,
-                                blurRadius: 4,
+              return GestureDetector(
+                onTap: () {
+                  if (isPresent || isTopDay) {
+                    Get.to(() => DailyAttendancePage(targetDate: dateStr));
+                  }
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: isTopDay ? _pureBlack : bgColor,
+                        borderRadius: BorderRadius.circular(10),
+                        border: isTopDay
+                            ? Border.all(
+                                color: Colors.orange.withOpacity(0.5),
+                                width: 1.5,
                               )
-                            ] : null,
+                            : (isFuture
+                                  ? Border.all(
+                                      color: _lightGray.withOpacity(0.5),
+                                    )
+                                  : null),
+                        boxShadow: isTopDay
+                            ? [
+                                BoxShadow(
+                                  color: Colors.orange.withOpacity(0.3),
+                                  blurRadius: 10,
+                                  spreadRadius: 2,
+                                ),
+                              ]
+                            : null,
+                      ),
+                      alignment: Alignment.center,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        clipBehavior: Clip.none,
+                        children: [
+                          if (isTopDay)
+                            Positioned.fill(
+                              child: RepaintBoundary(
+                                child: BurningFireWidget(
+                                  animation: _fireController,
+                                ),
+                              ),
+                            ),
+                          Text(
+                            dayNum.toString(),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: (isPresent || isTopDay)
+                                  ? FontWeight.w900
+                                  : (isFuture
+                                        ? FontWeight.w500
+                                        : FontWeight.w700),
+                              color: isTopDay ? _pureWhite : textColor,
+                              shadows: isTopDay
+                                  ? [
+                                      const Shadow(
+                                        color: Colors.black,
+                                        blurRadius: 4,
+                                      ),
+                                    ]
+                                  : null,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               );
             },
           ),
@@ -2737,7 +3172,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Future<void> _triggerStreakAnimation() async {
     if (!mounted) return;
-    
+
     // Auto-scroll to top if greeting card is hidden
     if (_scrollController.hasClients && _scrollController.offset > 50) {
       await _scrollController.animateTo(
@@ -2745,12 +3180,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         duration: const Duration(milliseconds: 600),
         curve: Curves.easeOutCubic,
       );
-      await Future.delayed(const Duration(milliseconds: 200)); // slight pause for smoothness
+      await Future.delayed(
+        const Duration(milliseconds: 200),
+      ); // slight pause for smoothness
     }
 
     // More distinct vibration while flying
     _vibrationTimer?.cancel();
-    _vibrationTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+    _vibrationTimer = Timer.periodic(const Duration(milliseconds: 100), (
+      timer,
+    ) {
       HapticFeedback.selectionClick(); // subtle but high-frequency click
     });
 
@@ -2769,19 +3208,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             final t = _streakFlyAnimation.value;
             final dimOpacity = math.sin(t * math.pi) * 0.85;
 
-            final rb = _streakTargetKey.currentContext?.findRenderObject() as RenderBox?;
+            final rb =
+                _streakTargetKey.currentContext?.findRenderObject()
+                    as RenderBox?;
             final stackBox = context.findRenderObject() as RenderBox?;
             if (rb == null || stackBox == null) return const SizedBox.shrink();
 
             // Calculate target position relative to the Stack overlay
-            final targetGlobalCenter = rb.localToGlobal(Offset(rb.size.width / 2, rb.size.height / 2));
+            final targetGlobalCenter = rb.localToGlobal(
+              Offset(rb.size.width / 2, rb.size.height / 2),
+            );
             final targetLocalPos = stackBox.globalToLocal(targetGlobalCenter);
-            
+
             final size = MediaQuery.of(context).size;
             // Center of the stack (body)
             final startX = stackBox.size.width / 2;
             final startY = stackBox.size.height / 2;
-            
+
             final endX = targetLocalPos.dx;
             final endY = targetLocalPos.dy;
 
@@ -2792,7 +3235,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             // We want it to land exactly at 0.4x scale (40 * 0.4 = 16) to match the badge icon
             final scale = (1.0 - t) * 1.5 + 0.4 + math.sin(t * math.pi) * 2.0;
             final rotation = t * math.pi * 2;
-            
+
             // As fire goes "inside" the card (approaching t=1.0), it should turn white (lose orange colors)
             // We'll fade out the orange effects between t=0.7 and t=1.0
             final colorFade = (1.0 - (t - 0.7) / 0.3).clamp(0.0, 1.0);
@@ -2859,7 +3302,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   final offsetT = (t - (index * 0.05)).clamp(0.0, 1.0);
                   final tx = startX + (endX - startX) * offsetT;
                   final ty = startY + (endY - startY) * offsetT;
-                  final pOpacity = ((1.0 - t) * (1.0 - (index * 0.3)) * colorFade).clamp(0.0, 1.0);
+                  final pOpacity =
+                      ((1.0 - t) * (1.0 - (index * 0.3)) * colorFade).clamp(
+                        0.0,
+                        1.0,
+                      );
 
                   return Positioned(
                     left: tx - 5,
@@ -2898,8 +3345,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final result = await Get.to(
         () => EmployeeSelectionPage(
           action: actionType,
-          managerId: userData!['id'],
-          managerName: userData['username'] ?? 'Manager',
+          managerId: userData['id'],
+          managerName: userData['username'] ?? 'Multi User',
         ),
       );
 
@@ -2910,14 +3357,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final bool isOut = result['isOut'] ?? false;
         await _loadTodayAttendance();
         await _loadMonthlyPerformance(updateUI: !isOut);
-        
+
         if (isOut) {
           Future.delayed(const Duration(milliseconds: 250), () {
             if (!mounted) return;
             _triggerStreakAnimation();
           });
         }
-        _showMessage(isOut ? 'Checked Out Successfully' : 'Checked In Successfully', isSuccess: true);
+        _showMessage(
+          isOut ? 'Checked Out Successfully' : 'Checked In Successfully',
+          isSuccess: true,
+        );
       }
     } else {
       if (_isNavigatingToCamera) return;
@@ -3125,26 +3575,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
       _isNavigatingToCamera = true;
       try {
-        final result = await Get.to(() => CameraPage(
-          siteName: chosenSite,
-        ));
-        
+        final result = await Get.to(() => CameraPage(siteName: chosenSite));
+
         if (!mounted) return;
-        
+
         if (result != null && result is Map && result['success'] == true) {
           final bool isOut = result['isOut'] ?? false;
           await _loadTodayAttendance();
           await _loadMonthlyPerformance(updateUI: !isOut);
-          
+
           if (isOut) {
             Future.delayed(const Duration(milliseconds: 250), () {
               if (!mounted) return;
               _triggerStreakAnimation();
             });
           }
-          _showMessage(isOut ? 'Checked Out Successfully' : 'Checked In Successfully', isSuccess: true);
+          _showMessage(
+            isOut ? 'Checked Out Successfully' : 'Checked In Successfully',
+            isSuccess: true,
+          );
         }
-        
+
         if (!mounted) return;
         // If success is true, we already showed success on CameraPage
         // and _handleConfirmFromCamera updated the state.
@@ -3153,7 +3604,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       }
     }
   }
-
 
   Future<bool> _handleConfirmFromCamera({
     required String imagePath,
@@ -3169,9 +3619,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       if (userData == null) return false;
 
       final now = DateTime.now();
-      
+
       onStatusUpdate('Uploading photo to server...');
-      
+
       dynamic result;
       if (userIds != null && userIds.isNotEmpty) {
         // Bulk Upload
@@ -3204,10 +3654,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       if (result['success'] == true) {
         onStatusUpdate('Updating records...');
         onProgress(1.0);
-        
+
         final msg = result['message'] ?? '';
-        final isOut = msg.toLowerCase().contains('check-out') || msg.toLowerCase().contains('checkout');
-        
+        final isOut =
+            msg.toLowerCase().contains('check-out') ||
+            msg.toLowerCase().contains('checkout');
+
         // Show success msg on top of the next page
         await _loadTodayAttendance();
         await _loadMonthlyPerformance(updateUI: !isOut);
@@ -3218,8 +3670,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             _triggerStreakAnimation();
           });
         }
-        
-        _showMessage(isOut ? 'Checked Out Successfully' : 'Checked In Successfully', isSuccess: true);
+
+        _showMessage(
+          isOut ? 'Checked Out Successfully' : 'Checked In Successfully',
+          isSuccess: true,
+        );
         return true;
       } else {
         return false;
@@ -3299,6 +3754,118 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       }
     } catch (e) {
       if (mounted) setState(() => _uploadProgress = null);
+      _showLocationErrorDialog(e.toString());
+    }
+  }
+
+  void _showLocationErrorDialog(String error) {
+    if (error.contains('LOCATION_REQUIRED') || error.contains('location')) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.location_off, size: 32, color: Colors.red),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Location Required',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Please turn on your phone\'s location (GPS) to check in or check out.',
+                  style: TextStyle(fontSize: 18, height: 1.5),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'We need to know where you are for safety.',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                    height: 1.4,
+                  ),
+                ),
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange[300]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange[700]),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'After turning on location, try again.',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: Colors.orange[900],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  // Open location settings
+                  // Note: You may need to add a package like 'open_app_settings' or 'app_settings'
+                  // For now, we'll just close the dialog
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: Text(
+                  'Open Settings',
+                  style: TextStyle(fontSize: 16, color: Colors.white),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  // Retry the attendance submission
+                  _handleAttendanceAction();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: Text(
+                  'Try Again',
+                  style: TextStyle(fontSize: 16, color: Colors.white),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    } else {
       _showMessage('Failed to record attendance', isSuccess: false);
     }
   }
@@ -3343,7 +3910,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final msg = result['message'] ?? '';
         final count = (result['results'] as List?)?.length ?? userIds.length;
         _showMessage('$msg — $count person(s) recorded', isSuccess: true);
-        final isOut = msg.toLowerCase().contains('check-out') ||
+        final isOut =
+            msg.toLowerCase().contains('check-out') ||
             msg.toLowerCase().contains('checkout');
         await _loadTodayAttendance();
         await _loadMonthlyPerformance(updateUI: !isOut);
@@ -3360,7 +3928,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       }
     } catch (e) {
       if (mounted) setState(() => _uploadProgress = null);
-      _showMessage('Failed to record attendance', isSuccess: false);
+      _showLocationErrorDialog(e.toString());
     }
   }
 
@@ -3378,6 +3946,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (hour < 12) return 'Good morning';
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
+  }
+
+  double _parseDurationProgress(String duration) {
+    if (duration.isEmpty) return 0.0;
+    try {
+      double totalMinutes = 0;
+      final parts = duration.toLowerCase().split(' ');
+      for (var part in parts) {
+        if (part.contains('h')) {
+          totalMinutes += (double.tryParse(part.replaceAll('h', '')) ?? 0) * 60;
+        } else if (part.contains('m')) {
+          totalMinutes += double.tryParse(part.replaceAll('m', '')) ?? 0;
+        }
+      }
+      return (totalMinutes / (9 * 60)).clamp(0.0, 1.0);
+    } catch (_) {
+      return 0.0;
+    }
   }
 }
 
@@ -3448,13 +4034,12 @@ class LiquidWavePainter extends CustomPainter {
 
 class BurningFireWidget extends StatelessWidget {
   final Animation<double> animation;
-  const BurningFireWidget({Key? key, required this.animation}) : super(key: key);
+  const BurningFireWidget({Key? key, required this.animation})
+    : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: CampFirePainter(animation: animation),
-    );
+    return CustomPaint(painter: CampFirePainter(animation: animation));
   }
 }
 
@@ -3485,20 +4070,32 @@ class CampFirePainter extends CustomPainter {
   void _drawAmbientGlow(Canvas canvas, Size size, double cx, double baseY) {
     final flicker = 0.55 + math.sin(t * 11) * 0.08 + math.sin(t * 7.3) * 0.06;
     // Glow limited to ~50px width
-    final glowRect = Rect.fromCenter(center: Offset(cx, baseY + 2), width: 52, height: 28);
+    final glowRect = Rect.fromCenter(
+      center: Offset(cx, baseY + 2),
+      width: 52,
+      height: 28,
+    );
     canvas.drawOval(
       glowRect,
       Paint()
-        ..shader = RadialGradient(colors: [
-          Colors.orange.withOpacity(0.4 * flicker),
-          Colors.deepOrange.withOpacity(0.2 * flicker),
-          Colors.transparent,
-        ]).createShader(glowRect),
+        ..shader = RadialGradient(
+          colors: [
+            Colors.orange.withOpacity(0.4 * flicker),
+            Colors.deepOrange.withOpacity(0.2 * flicker),
+            Colors.transparent,
+          ],
+        ).createShader(glowRect),
     );
   }
 
-  void _drawLog(Canvas canvas, double cx, double baseY,
-      double offsetX, double angle, List<double> barkX) {
+  void _drawLog(
+    Canvas canvas,
+    double cx,
+    double baseY,
+    double offsetX,
+    double angle,
+    List<double> barkX,
+  ) {
     canvas.save();
     canvas.translate(cx + offsetX, baseY + 2);
     canvas.rotate(angle);
@@ -3511,18 +4108,28 @@ class CampFirePainter extends CustomPainter {
 
     // Log body
     final logPaint = Paint()
-      ..shader = LinearGradient(colors: [
-        Color(0xFF1A0C05), Color(0xFF2E1508),
-        Color(0xFF3A1A09), Color(0xFF1A0C05),
-      ], stops: const [0, 0.3, 0.7, 1]).createShader(Rect.fromLTWH(-11, -2, 22, 4));
+      ..shader = LinearGradient(
+        colors: [
+          Color(0xFF1A0C05),
+          Color(0xFF2E1508),
+          Color(0xFF3A1A09),
+          Color(0xFF1A0C05),
+        ],
+        stops: const [0, 0.3, 0.7, 1],
+      ).createShader(Rect.fromLTWH(-11, -2, 22, 4));
     canvas.drawRRect(logRect, logPaint);
 
     // Ember glow on log
     final glowPaint = Paint()
-      ..shader = LinearGradient(colors: [
-        Colors.transparent, Color(0xFFDC500A).withOpacity(0.6),
-        Color(0xFFFF7814).withOpacity(0.75), Colors.transparent,
-      ], stops: const [0, 0.4, 0.6, 1]).createShader(Rect.fromLTWH(-11, -2, 22, 4));
+      ..shader = LinearGradient(
+        colors: [
+          Colors.transparent,
+          Color(0xFFDC500A).withOpacity(0.6),
+          Color(0xFFFF7814).withOpacity(0.75),
+          Colors.transparent,
+        ],
+        stops: const [0, 0.4, 0.6, 1],
+      ).createShader(Rect.fromLTWH(-11, -2, 22, 4));
     canvas.drawRRect(logRect, glowPaint);
 
     // Bark lines (Simplified)
@@ -3530,8 +4137,12 @@ class CampFirePainter extends CustomPainter {
       ..color = Colors.black.withOpacity(0.4)
       ..strokeWidth = 0.65;
     for (final x in barkX) {
-       final lx = x * 0.15;
-       canvas.drawLine(Offset(lx, -2), Offset(lx + angle.sign * 1.5, 2), barkPaint);
+      final lx = x * 0.15;
+      canvas.drawLine(
+        Offset(lx, -2),
+        Offset(lx + angle.sign * 1.5, 2),
+        barkPaint,
+      );
     }
 
     canvas.restore();
@@ -3543,19 +4154,30 @@ class CampFirePainter extends CustomPainter {
   }
 
   void _drawEmberBed(Canvas canvas, double cx, double baseY) {
-    final bedRect = Rect.fromCenter(center: Offset(cx, baseY + 1), width: 22, height: 6);
+    final bedRect = Rect.fromCenter(
+      center: Offset(cx, baseY + 1),
+      width: 22,
+      height: 6,
+    );
     canvas.drawOval(
       bedRect,
       Paint()
-        ..shader = RadialGradient(colors: [
-          Color(0xFFFF8C14).withOpacity(0.95),
-          Color(0xFFDC4605).withOpacity(0.8),
-          Colors.transparent,
-        ], stops: const [0, 0.3, 1]).createShader(bedRect),
+        ..shader = RadialGradient(
+          colors: [
+            Color(0xFFFF8C14).withOpacity(0.95),
+            Color(0xFFDC4605).withOpacity(0.8),
+            Colors.transparent,
+          ],
+          stops: const [0, 0.3, 1],
+        ).createShader(bedRect),
     );
 
     // Tiny coals
-    const coals = [[-6.0, 1.0, 1.5], [0.0, 0.0, 1.8], [6.0, 1.0, 1.6]];
+    const coals = [
+      [-6.0, 1.0, 1.5],
+      [0.0, 0.0, 1.8],
+      [6.0, 1.0, 1.6],
+    ];
     for (final c in coals) {
       final flick = 0.85 + math.sin(t * 8 + c[0]) * 0.15;
       final center = Offset(cx + c[0], baseY + c[1]);
@@ -3567,9 +4189,18 @@ class CampFirePainter extends CustomPainter {
     }
   }
 
-  Path _flamePath(double cx, double baseY, double maxH, double width, double phase) {
-    final flicker = math.sin(t * 7 + phase) * 0.06 + math.sin(t * 13 + phase * 2) * 0.03;
-    final sway = math.sin(t * 3 + phase) * width * 0.22 + math.sin(t * 5.7) * width * 0.10;
+  Path _flamePath(
+    double cx,
+    double baseY,
+    double maxH,
+    double width,
+    double phase,
+  ) {
+    final flicker =
+        math.sin(t * 7 + phase) * 0.06 + math.sin(t * 13 + phase * 2) * 0.03;
+    final sway =
+        math.sin(t * 3 + phase) * width * 0.22 +
+        math.sin(t * 5.7) * width * 0.10;
     final h = maxH * (0.85 + flicker);
     const pts = 12;
 
@@ -3577,14 +4208,23 @@ class CampFirePainter extends CustomPainter {
     for (int i = 0; i <= pts; i++) {
       final frac = i / pts;
       final xWobble = noise(frac * 1.5, t * 1.2 + phase) * width * 0.3 * frac;
-      final x = cx + sway * frac + math.sin(frac * math.pi) * width * (1 - frac * 0.7) + xWobble;
+      final x =
+          cx +
+          sway * frac +
+          math.sin(frac * math.pi) * width * (1 - frac * 0.7) +
+          xWobble;
       final y = baseY - frac * h;
       i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
     }
     for (int i = pts; i >= 0; i--) {
       final frac = i / pts;
-      final xWobble = noise(frac * 1.5 + 1, t * 1.2 + phase) * width * 0.3 * frac;
-      final x = cx + sway * frac - math.sin(frac * math.pi) * width * (1 - frac * 0.7) + xWobble;
+      final xWobble =
+          noise(frac * 1.5 + 1, t * 1.2 + phase) * width * 0.3 * frac;
+      final x =
+          cx +
+          sway * frac -
+          math.sin(frac * math.pi) * width * (1 - frac * 0.7) +
+          xWobble;
       final y = baseY - frac * h;
       path.lineTo(x, y);
     }
@@ -3592,8 +4232,18 @@ class CampFirePainter extends CustomPainter {
     return path;
   }
 
-  void _drawSingleFlame(Canvas canvas, double cx, double baseY, double maxH,
-      double width, double phase, double alpha, Color colBase, Color colMid, Color colTip) {
+  void _drawSingleFlame(
+    Canvas canvas,
+    double cx,
+    double baseY,
+    double maxH,
+    double width,
+    double phase,
+    double alpha,
+    Color colBase,
+    Color colMid,
+    Color colTip,
+  ) {
     final path = _flamePath(cx, baseY, maxH, width, phase);
     final bounds = path.getBounds();
     if (bounds.isEmpty) return;
@@ -3612,13 +4262,100 @@ class CampFirePainter extends CustomPainter {
 
   void _drawFlames(Canvas canvas, double cx, double baseY, Size size) {
     // Mini flames: main peaks at 24px
-    _drawSingleFlame(canvas, cx, baseY - 1, 22, 11, 0, 0.25, Color(0xFFC82805), Color(0xFFDC5005), Color(0xFFFFD028));
-    _drawSingleFlame(canvas, cx, baseY - 1, 28, 9, 0.3, 0.75, Color(0xFFB42305), Color(0xFFF56408), Color(0xFFFFC83C));
-    _drawSingleFlame(canvas, cx - 4, baseY - 1, 16, 6, 1.1, 0.65, Color(0xFFBE2805), Color(0xFFFA6E0A), Color(0xFFFFD246));
-    _drawSingleFlame(canvas, cx + 3, baseY - 1, 18, 7, 2.2, 0.65, Color(0xFFB92605), Color(0xFFF86C0A), Color(0xFFFFD041));
-    _drawSingleFlame(canvas, cx, baseY - 1, 14, 4, 0.5, 0.9, Color(0xFFF06408), Color(0xFFFFE664), Colors.white);
+    _drawSingleFlame(
+      canvas,
+      cx,
+      baseY - 1,
+      22,
+      11,
+      0,
+      0.25,
+      Color(0xFFC82805),
+      Color(0xFFDC5005),
+      Color(0xFFFFD028),
+    );
+    _drawSingleFlame(
+      canvas,
+      cx,
+      baseY - 1,
+      28,
+      9,
+      0.3,
+      0.75,
+      Color(0xFFB42305),
+      Color(0xFFF56408),
+      Color(0xFFFFC83C),
+    );
+    _drawSingleFlame(
+      canvas,
+      cx - 4,
+      baseY - 1,
+      16,
+      6,
+      1.1,
+      0.65,
+      Color(0xFFBE2805),
+      Color(0xFFFA6E0A),
+      Color(0xFFFFD246),
+    );
+    _drawSingleFlame(
+      canvas,
+      cx + 3,
+      baseY - 1,
+      18,
+      7,
+      2.2,
+      0.65,
+      Color(0xFFB92605),
+      Color(0xFFF86C0A),
+      Color(0xFFFFD041),
+    );
+    _drawSingleFlame(
+      canvas,
+      cx,
+      baseY - 1,
+      14,
+      4,
+      0.5,
+      0.9,
+      Color(0xFFF06408),
+      Color(0xFFFFE664),
+      Colors.white,
+    );
   }
 
   @override
   bool shouldRepaint(covariant CampFirePainter oldDelegate) => true;
+}
+
+class _RingPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  const _RingPainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 5;
+    final trackPaint = Paint()
+      ..color = Colors.white.withOpacity(0.1)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4;
+    final progressPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round;
+    canvas.drawCircle(center, radius, trackPaint);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -math.pi / 2,
+      2 * math.pi * progress,
+      false,
+      progressPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter old) => old.progress != progress;
 }

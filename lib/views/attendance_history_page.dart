@@ -6,7 +6,8 @@ import '../services/api_service.dart';
 
 class AttendanceHistoryPage extends StatefulWidget {
   final String? initialMonth; // Format: YYYY-MM
-  const AttendanceHistoryPage({Key? key, this.initialMonth}) : super(key: key);
+  final String? targetDate;   // Format: YYYY-MM-DD
+  const AttendanceHistoryPage({Key? key, this.initialMonth, this.targetDate}) : super(key: key);
 
   @override
   _AttendanceHistoryPageState createState() => _AttendanceHistoryPageState();
@@ -18,6 +19,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   Map<String, dynamic>? monthlySummary;
   bool isLoading = true;
   String selectedMonth = '';
+  final GlobalKey _targetKey = GlobalKey();
 
   @override
   void initState() {
@@ -52,6 +54,22 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
           dailyBreakdown = dailyData['days'] ?? [];
           isLoading = false;
         });
+
+        // Scroll to target if provided
+        if (widget.targetDate != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            Future.delayed(const Duration(milliseconds: 300), () {
+              if (_targetKey.currentContext != null) {
+                Scrollable.ensureVisible(
+                  _targetKey.currentContext!,
+                  duration: const Duration(milliseconds: 600),
+                  curve: Curves.easeInOutQuart,
+                  alignment: 0.1, // Show a bit of context above the card
+                );
+              }
+            });
+          });
+        }
       }
     } catch (e) {
       print('Error loading attendance: $e');
@@ -326,19 +344,24 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
 
     print('🔍 Day data: $day'); // Debug print for each day
 
+    final isTarget = widget.targetDate != null && date == widget.targetDate;
+
     return Container(
+      key: isTarget ? _targetKey : null,
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isTarget ? const Color(0xFFFFF9DB) : Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: dayType == 'Sunday'
-              ? Colors.red.shade200
-              : dayType == 'Holiday'
-              ? Colors.orange.shade200
-              : Colors.green.shade200,
-          width: 1,
+          color: isTarget 
+              ? Colors.orange.shade400 
+              : (dayType == 'Sunday'
+                  ? Colors.red.shade200
+                  : dayType == 'Holiday'
+                  ? Colors.orange.shade200
+                  : Colors.green.shade200),
+          width: isTarget ? 2 : 1,
         ),
         boxShadow: [
           BoxShadow(

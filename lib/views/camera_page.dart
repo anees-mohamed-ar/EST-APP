@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'dart:io' show File;
 import 'dart:ui' as ui;
 import 'capture_progress_page.dart';
+import 'location_error_page.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:permission_handler/permission_handler.dart';
@@ -15,6 +16,7 @@ import 'package:image/image.dart' as img;
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:get_storage/get_storage.dart';
+import '../services/location_service.dart';
 
 class CameraPage extends StatefulWidget {
   final String? siteName;
@@ -28,7 +30,8 @@ class CameraPage extends StatefulWidget {
     required String? lang,
     required Function(double) onProgress,
     required Function(String status) onStatusUpdate,
-  })? onConfirm;
+  })?
+  onConfirm;
 
   const CameraPage({
     Key? key,
@@ -44,6 +47,7 @@ class CameraPage extends StatefulWidget {
 
 class _CameraPageState extends State<CameraPage> {
   final CameraPageController _cameraCtrl = Get.put(CameraPageController());
+  final LocationService _locationService = LocationService();
 
   String? capturedImagePath;
   geo.Position? currentPosition;
@@ -54,7 +58,7 @@ class _CameraPageState extends State<CameraPage> {
   bool _cameraFailedToOpen = false;
   bool _isPreviewing = false;
   String? _tempCapturedPath;
-  
+
   // Single-page loading states
   bool _isActionInProgress = false;
   double _uploadProgress = 0.0;
@@ -71,12 +75,14 @@ class _CameraPageState extends State<CameraPage> {
   void initState() {
     super.initState();
     try {
+      _locationService.init();
       _checkInitialStates();
       checkPermissions();
       _startLocationStream();
       _startServiceStatusStream();
       _startConnectivityStream();
     } catch (e) {
+      debugPrint('❌ Initialization Error: $e');
       if (mounted) setState(() => isCheckingPermissions = false);
       Get.snackbar(
         'Initialization Error',
@@ -97,19 +103,25 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   Future<void> _checkInitialStates() async {
-    bool loc = await geo.Geolocator.isLocationServiceEnabled();
+    bool loc = await _locationService.isLocationEnabled();
     var conn = await Connectivity().checkConnectivity();
     if (mounted) {
       setState(() {
         _isLocationServiceEnabled = loc;
-        _isConnected = conn.any((element) => element != ConnectivityResult.none);
+        _isConnected = conn.any(
+          (element) => element != ConnectivityResult.none,
+        );
       });
     }
   }
 
   void _startConnectivityStream() {
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((results) {
-      bool connected = results.any((element) => element != ConnectivityResult.none);
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      results,
+    ) {
+      bool connected = results.any(
+        (element) => element != ConnectivityResult.none,
+      );
       if (mounted && _isConnected != connected) {
         setState(() => _isConnected = connected);
         if (!connected) {
@@ -126,65 +138,37 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   void _startServiceStatusStream() {
-    _serviceStatusSubscription = geo.Geolocator.getServiceStatusStream().listen((status) {
-      bool enabled = status == geo.ServiceStatus.enabled;
-      if (mounted && _isLocationServiceEnabled != enabled) {
-        setState(() => _isLocationServiceEnabled = enabled);
-        if (!enabled) {
-          _showLocationServiceDialog();
+    _serviceStatusSubscription = geo.Geolocator.getServiceStatusStream().listen(
+      (status) {
+        bool enabled = status == geo.ServiceStatus.enabled;
+        if (mounted && _isLocationServiceEnabled != enabled) {
+          setState(() => _isLocationServiceEnabled = enabled);
+          // Removed _showLocationServiceDialog() to avoid showing popup
+          // while LocationErrorPage is being shown via build()
         }
-      }
-    });
-  }
-
-  void _showLocationServiceDialog() {
-    if (Get.isDialogOpen ?? false) return;
-    Get.dialog(
-      AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: const [
-            Icon(Icons.location_off, color: Colors.red),
-            SizedBox(width: 10),
-            Text('Location Off'),
-          ],
-        ),
-        content: const Text('Location services are disabled. Please turn on GPS to continue.'),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              bool enabled = await geo.Geolocator.isLocationServiceEnabled();
-              if (enabled) {
-                if (mounted) setState(() => _isLocationServiceEnabled = true);
-                Get.back(); // Close dialog
-                checkPermissions(); // Re-run permissions to initialize camera
-              } else {
-                await geo.Geolocator.openLocationSettings();
-              }
-            },
-            child: const Text('RETRY / TURN ON', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-      barrierDismissible: false,
+      },
     );
   }
 
   void _startLocationStream() {
-    _locationSubscription = geo.Geolocator.getPositionStream(
-      locationSettings: const geo.LocationSettings(
-        accuracy: geo.LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
-    ).listen((geo.Position position) {
-      if (mounted) {
-        setState(() {
-          currentPosition = position;
-        });
-      }
-    }, onError: (e) {
-      debugPrint('Location Stream Error: $e');
-    });
+    _locationSubscription =
+        geo.Geolocator.getPositionStream(
+          locationSettings: const geo.LocationSettings(
+            accuracy: geo.LocationAccuracy.high,
+            distanceFilter: 5,
+          ),
+        ).listen(
+          (geo.Position position) {
+            if (mounted) {
+              setState(() {
+                currentPosition = position;
+              });
+            }
+          },
+          onError: (e) {
+            debugPrint('Location Stream Error: $e');
+          },
+        );
   }
 
   static const _bg = Color(0xFFFAFAFB);
@@ -342,12 +326,11 @@ class _CameraPageState extends State<CameraPage> {
         // Request location service enable if needed
         bool serviceEnabled = await geo.Geolocator.isLocationServiceEnabled();
         if (mounted) setState(() => _isLocationServiceEnabled = serviceEnabled);
-        
+
         if (!serviceEnabled) {
-          _showLocationServiceDialog();
-          // Stop here. The 'RETRY' button in dialog will re-call checkPermissions()
+          // No longer calling _showLocationServiceDialog() here
           if (mounted) setState(() => isCheckingPermissions = false);
-          return; 
+          return;
         }
 
         currentPosition = await geo.Geolocator.getCurrentPosition(
@@ -374,40 +357,50 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   Future<void> _captureInternal() async {
-    if (!hasLocationPermission || !hasCameraPermission) return;
-    
+    // Re-check location service status immediately before capture
+    bool serviceEnabled = await _locationService.isLocationEnabled();
+    if (!serviceEnabled) {
+      debugPrint('📍 Capture blocked: Location service is DISABLED');
+      if (mounted) setState(() => _isLocationServiceEnabled = false);
+      return;
+    }
+
+    if (!hasLocationPermission || !hasCameraPermission) {
+      debugPrint(
+        '📍 Capture blocked: Permissions missing (Loc: $hasLocationPermission, Cam: $hasCameraPermission)',
+      );
+      return;
+    }
+
     // STRICT GPS CHECK: Ensure we have a location before even allowing the capture flow to proceed
     if (currentPosition == null) {
+      debugPrint('📍 Capture: No current position, attempting fresh fix...');
       setState(() => _isLocationRefreshing = true);
       try {
         currentPosition = await geo.Geolocator.getCurrentPosition(
           desiredAccuracy: geo.LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 5),
+          timeLimit: const Duration(seconds: 8),
+        );
+        debugPrint(
+          '📍 Capture: Fresh fix obtained: ${currentPosition?.latitude}, ${currentPosition?.longitude}',
         );
       } catch (e) {
-        // ignore
+        debugPrint('📍 Capture: Failed to get fresh fix: $e');
       } finally {
         if (mounted) setState(() => _isLocationRefreshing = false);
       }
 
       if (currentPosition == null) {
-        Get.dialog(
-          AlertDialog(
-            title: const Text('GPS Required'),
-            content: const Text(
-              'Location coordinates are mandatory for attendance. Please ensure your GPS is ON and you have a clear signal before submitting.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Get.back(),
-                child: const Text('OK'),
-              ),
-              TextButton(
-                onPressed: () => openAppSettings(),
-                child: const Text('Settings'),
-              ),
-            ],
-          ),
+        debugPrint('📍 Capture blocked: Still no GPS lock');
+        // Instead of showing a popup, we set _isLocationServiceEnabled to false
+        // to trigger the full-screen LocationErrorPage if we can't get a lock
+        // or show a snackbar if service is on but signal is weak
+        Get.snackbar(
+          'GPS Signal Weak',
+          'Could not get a precise location lock. Please move to an open area and try again.',
+          backgroundColor: Colors.orange,
+          colorText: Colors.white,
+          snackPosition: SnackPosition.TOP,
         );
         return;
       }
@@ -424,7 +417,7 @@ class _CameraPageState extends State<CameraPage> {
       }
 
       final imagePath = image.path;
-      
+
       if (mounted) {
         setState(() {
           _isProcessingImage = false;
@@ -432,7 +425,7 @@ class _CameraPageState extends State<CameraPage> {
           _isPreviewing = true;
           // Release camera resources immediately once photo is taken to avoid buffer hangs
           _cameraCtrl.isCameraInitialized.value = false;
-          _cameraCtrl.onClose(); 
+          _cameraCtrl.onClose();
         });
       }
     } catch (e) {
@@ -448,34 +441,36 @@ class _CameraPageState extends State<CameraPage> {
 
   Future<void> _handleConfirm() async {
     if (_tempCapturedPath == null || _isActionInProgress) return;
-    
+
     setState(() => _isActionInProgress = true);
 
     // Release camera resources immediately once photo is taken to avoid buffer hangs
     _cameraCtrl.isCameraInitialized.value = false;
-    _cameraCtrl.onClose(); 
+    _cameraCtrl.onClose();
 
     // IMPORTANT: Move user to the dedicated progress page as requested
-    final result = await Get.to(() => CaptureProgressPage(
-      imagePath: _tempCapturedPath!,
-      lat: currentPosition?.latitude.toString(),
-      lang: currentPosition?.longitude.toString(),
-      siteName: widget.siteName,
-      userIds: widget.userIds,
-      isBulk: widget.isBulk,
-    ));
+    final result = await Get.to(
+      () => CaptureProgressPage(
+        imagePath: _tempCapturedPath!,
+        lat: currentPosition?.latitude.toString(),
+        lang: currentPosition?.longitude.toString(),
+        siteName: widget.siteName,
+        userIds: widget.userIds,
+        isBulk: widget.isBulk,
+      ),
+    );
 
     if (result != null && result is Map && result['success'] == true) {
-       // Successfully returned from progress, close the camera page and pass results back
-       Get.back(result: result);
+      // Successfully returned from progress, close the camera page and pass results back
+      Get.back(result: result);
     } else {
-       // User cancelled or failed - allow retake or re-attempt
-       setState(() => _isActionInProgress = false);
-       // Re-open camera for retake/viewfinder?
-       // Let's re-init just to be safe if they go back to camera view
-       _isPreviewing = false; // go back to viewfinder
-       _tempCapturedPath = null;
-       checkPermissions(); 
+      // User cancelled or failed - allow retake or re-attempt
+      setState(() => _isActionInProgress = false);
+      // Re-open camera for retake/viewfinder?
+      // Let's re-init just to be safe if they go back to camera view
+      _isPreviewing = false; // go back to viewfinder
+      _tempCapturedPath = null;
+      checkPermissions();
     }
   }
 
@@ -485,7 +480,7 @@ class _CameraPageState extends State<CameraPage> {
       _tempCapturedPath = null;
     });
     // Re-initialize camera for retake
-    checkPermissions(); 
+    checkPermissions();
   }
 
   Future<String> addTimestampAndLocationOverlay(String imagePath) async {
@@ -544,9 +539,11 @@ class _CameraPageState extends State<CameraPage> {
 
       final userData = GetStorage().read('user');
       final username = userData != null ? userData['username'] : 'N/A';
-      final siteStr = widget.siteName != null && widget.siteName!.isNotEmpty ? widget.siteName : 'N/A';
+      final siteStr = widget.siteName != null && widget.siteName!.isNotEmpty
+          ? widget.siteName
+          : 'N/A';
 
-      final stampText = 
+      final stampText =
           'EST TRACK | $dateStr | $timeStr | $locStr\n'
           'SITE: $siteStr\n'
           'Captured by : $username';
@@ -559,7 +556,7 @@ class _CameraPageState extends State<CameraPage> {
             fontSize: fontSize,
             fontWeight: FontWeight.bold,
             letterSpacing: 0.4,
-            height: 1.2
+            height: 1.2,
           ),
         ),
         textDirection: ui.TextDirection.ltr,
@@ -715,10 +712,26 @@ class _CameraPageState extends State<CameraPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isLocationServiceEnabled) {
+      return LocationErrorPage(
+        onRetry: () async {
+          debugPrint('📍 Retrying location check...');
+          bool enabled = await _locationService.isLocationEnabled();
+          if (enabled) {
+            debugPrint('📍 Location enabled! Returning to camera.');
+            if (mounted) setState(() => _isLocationServiceEnabled = true);
+            checkPermissions();
+          } else {
+            debugPrint('📍 Location still disabled.');
+          }
+        },
+      );
+    }
+
     if (_isPreviewing) {
       return _buildPreviewUI();
     }
-    
+
     if (isCheckingPermissions) {
       return _buildCenteredScaffold(
         child: Column(
@@ -932,9 +945,7 @@ class _CameraPageState extends State<CameraPage> {
         if (!_cameraCtrl.isCameraInitialized.value) {
           return const Scaffold(
             backgroundColor: Colors.black,
-            body: Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
+            body: Center(child: CircularProgressIndicator(color: Colors.white)),
           );
         }
 
@@ -950,7 +961,8 @@ class _CameraPageState extends State<CameraPage> {
                     fit: BoxFit.contain,
                     child: SizedBox(
                       width: 100,
-                      height: 100 * _cameraCtrl.cameraController!.value.aspectRatio,
+                      height:
+                          100 * _cameraCtrl.cameraController!.value.aspectRatio,
                       child: cam.CameraPreview(_cameraCtrl.cameraController!),
                     ),
                   ),
@@ -969,34 +981,50 @@ class _CameraPageState extends State<CameraPage> {
                       children: [
                         // GPS Indicator
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.black.withOpacity(0.6),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: currentPosition != null ? Colors.greenAccent : Colors.redAccent,
+                              color: currentPosition != null
+                                  ? Colors.greenAccent
+                                  : Colors.redAccent,
                               width: 1.2,
                             ),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (currentPosition == null || _isLocationRefreshing)
+                              if (currentPosition == null ||
+                                  _isLocationRefreshing)
                                 const SizedBox(
                                   width: 12,
                                   height: 12,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.redAccent),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.redAccent,
+                                    ),
                                   ),
                                 )
                               else
-                                const Icon(Icons.location_on, color: Colors.greenAccent, size: 14),
+                                const Icon(
+                                  Icons.location_on,
+                                  color: Colors.greenAccent,
+                                  size: 14,
+                                ),
                               const SizedBox(width: 6),
                               Text(
-                                currentPosition != null ? 'GPS LOCKED' : 'SEARCHING GPS...',
+                                currentPosition != null
+                                    ? 'GPS LOCKED'
+                                    : 'SEARCHING GPS...',
                                 style: TextStyle(
-                                  color: currentPosition != null ? Colors.greenAccent : Colors.redAccent,
+                                  color: currentPosition != null
+                                      ? Colors.greenAccent
+                                      : Colors.redAccent,
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
                                   letterSpacing: 0.5,
@@ -1008,12 +1036,17 @@ class _CameraPageState extends State<CameraPage> {
                         const SizedBox(width: 8),
                         // Network Indicator
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.black.withOpacity(0.6),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: _isConnected ? Colors.blueAccent : Colors.orangeAccent,
+                              color: _isConnected
+                                  ? Colors.blueAccent
+                                  : Colors.orangeAccent,
                               width: 1.2,
                             ),
                           ),
@@ -1022,14 +1055,18 @@ class _CameraPageState extends State<CameraPage> {
                             children: [
                               Icon(
                                 _isConnected ? Icons.wifi : Icons.wifi_off,
-                                color: _isConnected ? Colors.blueAccent : Colors.orangeAccent,
+                                color: _isConnected
+                                    ? Colors.blueAccent
+                                    : Colors.orangeAccent,
                                 size: 14,
                               ),
                               const SizedBox(width: 6),
                               Text(
                                 _isConnected ? 'ONLINE' : 'OFFLINE',
                                 style: TextStyle(
-                                  color: _isConnected ? Colors.blueAccent : Colors.orangeAccent,
+                                  color: _isConnected
+                                      ? Colors.blueAccent
+                                      : Colors.orangeAccent,
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
                                   letterSpacing: 0.5,
@@ -1043,7 +1080,7 @@ class _CameraPageState extends State<CameraPage> {
                   ],
                 ),
               ),
-              
+
               // Top Bar
               Positioned(
                 top: MediaQuery.of(context).padding.top + 16,
@@ -1072,9 +1109,13 @@ class _CameraPageState extends State<CameraPage> {
                           ),
                           child: IconButton(
                             icon: Icon(
-                               _cameraCtrl.flashMode.value == cam.FlashMode.off ? Icons.flash_off : 
-                               _cameraCtrl.flashMode.value == cam.FlashMode.auto ? Icons.flash_auto : Icons.flash_on, 
-                               color: Colors.white
+                              _cameraCtrl.flashMode.value == cam.FlashMode.off
+                                  ? Icons.flash_off
+                                  : _cameraCtrl.flashMode.value ==
+                                        cam.FlashMode.auto
+                                  ? Icons.flash_auto
+                                  : Icons.flash_on,
+                              color: Colors.white,
                             ),
                             onPressed: () => _cameraCtrl.toggleFlash(),
                           ),
@@ -1085,7 +1126,10 @@ class _CameraPageState extends State<CameraPage> {
                             shape: BoxShape.circle,
                           ),
                           child: IconButton(
-                            icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
+                            icon: const Icon(
+                              Icons.flip_camera_ios,
+                              color: Colors.white,
+                            ),
                             onPressed: () => _cameraCtrl.switchCamera(),
                           ),
                         ),
@@ -1131,9 +1175,7 @@ class _CameraPageState extends State<CameraPage> {
       });
     }
 
-    return _buildCenteredScaffold(
-      child: const Text('Loading...'),
-    );
+    return _buildCenteredScaffold(child: const Text('Loading...'));
   }
 
   Widget _buildPreviewUI() {
@@ -1145,10 +1187,7 @@ class _CameraPageState extends State<CameraPage> {
         children: [
           // Full Screen Image
           Positioned.fill(
-            child: Image.file(
-              File(_tempCapturedPath!),
-              fit: BoxFit.contain,
-            ),
+            child: Image.file(File(_tempCapturedPath!), fit: BoxFit.contain),
           ),
 
           // Top Information Banner
@@ -1171,7 +1210,11 @@ class _CameraPageState extends State<CameraPage> {
                       color: Colors.greenAccent.withOpacity(0.2),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.photo_library_outlined, color: Colors.greenAccent, size: 18),
+                    child: const Icon(
+                      Icons.photo_library_outlined,
+                      color: Colors.greenAccent,
+                      size: 18,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
@@ -1188,10 +1231,7 @@ class _CameraPageState extends State<CameraPage> {
                         ),
                         Text(
                           'Ensure all details are visible',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 11,
-                          ),
+                          style: TextStyle(color: Colors.white70, fontSize: 11),
                         ),
                       ],
                     ),
@@ -1206,47 +1246,52 @@ class _CameraPageState extends State<CameraPage> {
             bottom: 40,
             left: 20,
             right: 20,
-            child: _isActionInProgress 
-              ? _buildActionProgress()
-              : Row(
-                  children: [
-                    // Retake Button
-                    GestureDetector(
-                      onTap: _handleRetake,
-                      child: Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.12),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white24, width: 1.5),
-                        ),
-                        child: const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.refresh_rounded, color: Colors.white, size: 24),
-                            Text(
-                              'RETAKE',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 8,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
-                              ),
+            child: _isActionInProgress
+                ? _buildActionProgress()
+                : Row(
+                    children: [
+                      // Retake Button
+                      GestureDetector(
+                        onTap: _handleRetake,
+                        child: Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.12),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white24,
+                              width: 1.5,
                             ),
-                          ],
+                          ),
+                          child: const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.refresh_rounded,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                              Text(
+                                'RETAKE',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 16),
-                    // Swipe to Confirm
-                    Expanded(
-                      child: _ConfirmSwipeButton(
-                        onConfirm: _handleConfirm,
+                      const SizedBox(width: 16),
+                      // Swipe to Confirm
+                      Expanded(
+                        child: _ConfirmSwipeButton(onConfirm: _handleConfirm),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -1302,7 +1347,9 @@ class _CameraPageState extends State<CameraPage> {
             child: LinearProgressIndicator(
               value: _uploadProgress,
               backgroundColor: Colors.white12,
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.greenAccent),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Colors.greenAccent,
+              ),
               minHeight: 6,
             ),
           ),
@@ -1351,13 +1398,14 @@ class _ConfirmSwipeButton extends StatefulWidget {
   State<_ConfirmSwipeButton> createState() => _ConfirmSwipeButtonState();
 }
 
-class _ConfirmSwipeButtonState extends State<_ConfirmSwipeButton> with TickerProviderStateMixin {
+class _ConfirmSwipeButtonState extends State<_ConfirmSwipeButton>
+    with TickerProviderStateMixin {
   final ValueNotifier<double> _posNotifier = ValueNotifier(0.0);
   bool _triggered = false;
-  
+
   late final AnimationController _resetController;
   late final Animation<double> _resetAnimation;
-  
+
   // Guiding arrows animation
   late final AnimationController _arrowController;
   final List<Animation<double>> _arrowAnims = [];
@@ -1378,8 +1426,10 @@ class _ConfirmSwipeButtonState extends State<_ConfirmSwipeButton> with TickerPro
     });
 
     _arrowController = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1500))..repeat();
-    
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+
     for (int i = 0; i < 3; i++) {
       _arrowAnims.add(
         TweenSequence<double>([
@@ -1407,8 +1457,11 @@ class _ConfirmSwipeButtonState extends State<_ConfirmSwipeButton> with TickerPro
   void _onPanUpdate(DragUpdateDetails details, double maxSwipe) {
     if (_triggered) return;
     _resetController.stop();
-    _posNotifier.value = (_posNotifier.value + details.delta.dx).clamp(0.0, maxSwipe);
-    
+    _posNotifier.value = (_posNotifier.value + details.delta.dx).clamp(
+      0.0,
+      maxSwipe,
+    );
+
     if (_posNotifier.value >= maxSwipe) {
       _triggered = true;
       HapticFeedback.vibrate();
@@ -1437,7 +1490,10 @@ class _ConfirmSwipeButtonState extends State<_ConfirmSwipeButton> with TickerPro
           decoration: BoxDecoration(
             color: Colors.greenAccent.withOpacity(0.12),
             borderRadius: BorderRadius.circular(30),
-            border: Border.all(color: Colors.greenAccent.withOpacity(0.3), width: 1.5),
+            border: Border.all(
+              color: Colors.greenAccent.withOpacity(0.3),
+              width: 1.5,
+            ),
           ),
           child: Stack(
             children: [

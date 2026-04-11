@@ -74,6 +74,9 @@ dependencies:
   dio: ^5.7.0
   connectivity_plus: ^7.0.0
 
+  # Location package for system dialogs
+  location: ^8.0.1
+
   # Environment variables support
   flutter_dotenv: ^5.1.0
 

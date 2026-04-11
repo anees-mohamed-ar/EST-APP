@@ -275,7 +275,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
     return date == today && DateTime.now().hour < 20;
   }
 
-  String _calcOT(String? duration) {
+  String _calcOT(String? duration, [bool isEligible = true]) {
+    if (!isEligible) return '';
     if (duration == null || duration.isEmpty) return '';
     int totalMin = 0;
     final parts = duration.toLowerCase().trim().split(' ').where((p) => p.isNotEmpty);
@@ -896,7 +897,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
     final hasOut = checkOut != null && checkOut['time'] != null;
     final username = u['username'] as String? ?? 'Unknown';
     final initial = username.isNotEmpty ? username[0].toUpperCase() : '?';
-    final otText = _calcOT(duration);
+    final otText = _calcOT(duration, u['is_ot_eligible'] ?? true);
     final pfp = u['pfp'] as String?;
 
     return RepaintBoundary(

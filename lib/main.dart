@@ -15,6 +15,8 @@ import 'views/admin_dashboard_page.dart';
 import 'views/sites_page.dart';
 import 'views/splash_screen.dart';
 import 'views/holidays_page.dart';
+import 'views/leaderboard_page.dart';
+import 'views/profile_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -73,6 +75,8 @@ class MyApp extends StatelessWidget {
           page: () => AdminMonthlySummaryNewPage(),
         ),
         GetPage(name: '/holidays', page: () => const HolidaysPage()),
+        GetPage(name: '/leaderboard', page: () => const LeaderboardPage()),
+        GetPage(name: '/profile', page: () => ProfilePage()),
       ],
     );
   }

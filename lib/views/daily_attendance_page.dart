@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -7,17 +9,30 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../services/api_service.dart';
 
 class DailyAttendancePage extends StatefulWidget {
+  final String? targetDate; // Format: YYYY-MM-DD for highlighting/scrolling
+  const DailyAttendancePage({Key? key, this.targetDate}) : super(key: key);
+
   @override
   _DailyAttendancePageState createState() => _DailyAttendancePageState();
 }
 
-class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTickerProviderStateMixin {
+class _DailyAttendancePageState extends State<DailyAttendancePage>
+    with TickerProviderStateMixin {
   final storage = GetStorage();
   List<dynamic> attendanceSummary = [];
   List<dynamic> filteredSummary = [];
   Map<String, dynamic>? monthlySummary;
   Map<String, dynamic>? dailyBreakdown;
   bool isLoading = true;
+  final GlobalKey _targetKey = GlobalKey();
+
+  // Expansion state for OT details
+  Set<String> _expandedDates = {};
+
+  // Highlight animation
+  late AnimationController _blinkCtrl;
+  bool _highlightVisible = true;
+  Timer? _highlightTimer;
 
   // Default: start of current month → today
   late DateTimeRange? selectedDateRange = DateTimeRange(
@@ -25,20 +40,25 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
     end: DateTime.now(),
   );
 
-  static const _bg = Color(0xFFFAFAFB);
-  static const _card = Color(0xFFFFFFFF);
-  static const _black = Color(0xFF000000);
-  static const _green = Color(0xFF059669);
-  static const _red = Color(0xFFDC2626);
-  static const _amber = Color(0xFFD97706);
-  static const _blue = Color(0xFF2563EB);
-  static const _purple = Color(0xFF7C3AED);
-  static const _orange = Color(0xFFF97316);
-  static const _textPrimary = Color(0xFF111827);
-  static const _textSecondary = Color(0xFF6B7280);
-  static const _border = Color(0xFFE5E7EB);
-  static const _shimmerBase = Color(0xFFEEEEEE);
-  static const _shimmerHighlight = Color(0xFFF5F5F5);
+  static const Color _pureWhite = Color(0xFFFFFFFF);
+  static const Color _offWhite = Color(0xFFF8F8F8);
+  static const Color _lightGray = Color(0xFFEEEEEE);
+  static const Color _mediumGray = Color(0xFF9E9E9E);
+  static const Color _charcoal = Color(0xFF2C2C2C);
+  static const Color _pureBlack = Color(0xFF000000);
+
+  // Subtle accent colors
+  static const Color _softGreen = Color(0xFF2E7D32);
+  static const Color _softRed = Color(0xFFC62828);
+  static const Color _softAmber = Color(0xFFD97706);
+  static const Color _softBlue = Color(0xFF1976D2);
+  static const Color _softPurple = Color(0xFF7B1FA2);
+  static const Color _softOrange = Color(0xFFE65100);
+
+  // Map theme variables for consistency
+  static const _bg = _offWhite;
+  static const _card = _pureWhite;
+  static const _border = _lightGray;
 
   // ── Shimmer animation ─────────────────────────────────────────────────────
   late AnimationController _shimmerCtrl;
@@ -51,15 +71,32 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat();
-    _shimmerAnim = Tween<double>(begin: -2, end: 2).animate(
-      CurvedAnimation(parent: _shimmerCtrl, curve: Curves.easeInOut),
-    );
+    _shimmerAnim = Tween<double>(
+      begin: -2,
+      end: 2,
+    ).animate(CurvedAnimation(parent: _shimmerCtrl, curve: Curves.easeInOut));
+
+    _blinkCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350), // Throb faster
+    )..repeat(reverse: true);
+
+    if (widget.targetDate != null) {
+      _highlightTimer = Timer(const Duration(seconds: 8), () {
+        if (mounted) {
+          setState(() => _highlightVisible = false);
+        }
+      });
+    }
+
     loadAttendanceSummary();
   }
 
   @override
   void dispose() {
     _shimmerCtrl.dispose();
+    _blinkCtrl.dispose();
+    _highlightTimer?.cancel();
     super.dispose();
   }
 
@@ -117,31 +154,17 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
     return 'Weekday';
   }
 
-  Color _getDayTypeColor(String dayType) {
-    switch (dayType) {
-      case 'Sunday':
-        return Colors.red.withOpacity(0.1);
-      case 'Saturday':
-        return Colors.blue.withOpacity(0.1);
-      case 'Holiday':
-        return Colors.orange.withOpacity(0.1);
-      case 'Weekday':
-      default:
-        return Colors.green.withOpacity(0.1);
-    }
-  }
-
   Color _getDayTypeTextColor(String dayType) {
     switch (dayType) {
       case 'Sunday':
-        return Colors.red;
+        return _softRed;
       case 'Saturday':
-        return Colors.blue;
+        return _softBlue;
       case 'Holiday':
-        return Colors.orange;
+        return _softPurple;
       case 'Weekday':
       default:
-        return Colors.green;
+        return _softGreen;
     }
   }
 
@@ -150,45 +173,6 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
       return holidayName;
     }
     return dayType;
-  }
-
-  String _formatDoubleOT(String doubleOT) {
-    // Parse the double OT value and show the calculation
-    // e.g., "2× 2h = 4h" or "2× 30m = 1h"
-    try {
-      // Extract hours and minutes from the input string
-      final parts = doubleOT.split(' ');
-      int hours = 0;
-      int minutes = 0;
-
-      for (final part in parts) {
-        if (part.endsWith('h')) {
-          hours = int.parse(part.replaceAll('h', ''));
-        } else if (part.endsWith('m')) {
-          minutes = int.parse(part.replaceAll('m', ''));
-        }
-      }
-
-      // Calculate total (2×)
-      final totalMinutes = (hours * 60 + minutes) * 2;
-      final totalHours = totalMinutes ~/ 60;
-      final remainingMinutes = totalMinutes % 60;
-
-      String totalStr = '';
-      if (totalHours > 0 && remainingMinutes > 0) {
-        totalStr = '${totalHours}h ${remainingMinutes}m';
-      } else if (totalHours > 0) {
-        totalStr = '${totalHours}h';
-      } else {
-        totalStr = '${remainingMinutes}m';
-      }
-
-      // Show original and calculated: "2× 2h = 4h"
-      return '2× $doubleOT = $totalStr';
-    } catch (e) {
-      // Fallback to original value if parsing fails
-      return doubleOT;
-    }
   }
 
   String calculateOT(String? duration) {
@@ -262,20 +246,12 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
     return result;
   }
 
-  /// Called after data loads — applies the default date range.
-  void _applyDefaultFilter() {
-    _applyFilter();
-  }
-
   Future<void> loadAttendanceSummary() async {
     setState(() => isLoading = true);
     try {
       final userData = storage.read('user');
       if (userData != null) {
-        // Load both current attendance summary and payroll data
         final summary = await ApiService.getAttendanceSummary(userData['id']);
-
-        // Also fetch payroll data for detailed breakdown
         final now = DateTime.now();
         final yearMonth = '${now.year}-${now.month.toString().padLeft(2, '0')}';
 
@@ -295,22 +271,54 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
               attendanceSummary = summary;
               monthlySummary = monthlyData;
               dailyBreakdown = dailyData;
-              filteredSummary = List.from(summary);
               isLoading = false;
+
+              if (selectedDateRange != null) {
+                filteredSummary = attendanceSummary.where((day) {
+                  final dayDate = DateTime.parse(day['date']);
+                  return !dayDate.isBefore(selectedDateRange!.start) &&
+                      !dayDate.isAfter(selectedDateRange!.end);
+                }).toList();
+              } else {
+                filteredSummary = List.from(attendanceSummary);
+              }
             });
-            // Apply the default (or current) date range after data is loaded
-            _applyDefaultFilter();
+
+            if (widget.targetDate != null) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                // Increased delay to ensure all dynamic heights (including bottom spacer) are included
+                Future.delayed(const Duration(milliseconds: 1300), () {
+                  if (_targetKey.currentContext != null) {
+                    Scrollable.ensureVisible(
+                      _targetKey.currentContext!,
+                      duration: const Duration(milliseconds: 600),
+                      curve: Curves.easeOut,
+                      alignment: 0.1,
+                    );
+
+                    Future.delayed(const Duration(milliseconds: 820), () {
+                      if (_targetKey.currentContext != null) {
+                        Scrollable.ensureVisible(
+                          _targetKey.currentContext!,
+                          duration: const Duration(milliseconds: 800),
+                          curve: Curves.easeInOutCubic,
+                          alignment: 0.3,
+                        );
+                      }
+                    });
+                  }
+                });
+              });
+            }
           }
         } catch (e) {
           print('Failed to load payroll data: $e');
-          // Fallback to basic attendance summary
           if (mounted) {
             setState(() {
               attendanceSummary = summary;
               filteredSummary = List.from(summary);
               isLoading = false;
             });
-            _applyDefaultFilter();
           }
         }
       }
@@ -319,8 +327,8 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
       Get.snackbar(
         'Error',
         'Failed to load attendance records',
-        backgroundColor: _red,
-        colorText: Colors.white,
+        backgroundColor: _softRed,
+        colorText: _pureWhite,
         snackPosition: SnackPosition.BOTTOM,
         margin: const EdgeInsets.all(16),
         borderRadius: 14,
@@ -351,12 +359,12 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
         return Theme(
           data: ThemeData.light().copyWith(
             colorScheme: const ColorScheme.light(
-              primary: _black,
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: _textPrimary,
+              primary: _charcoal,
+              onPrimary: _pureWhite,
+              surface: _pureWhite,
+              onSurface: _charcoal,
             ),
-            dialogBackgroundColor: Colors.white,
+            dialogBackgroundColor: _pureWhite,
           ),
           child: child!,
         );
@@ -387,13 +395,13 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
               icon: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: _textPrimary.withOpacity(0.06),
+                  color: _charcoal.withOpacity(0.06),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
                   Icons.arrow_back_ios_new_rounded,
                   size: 16,
-                  color: _textPrimary,
+                  color: _charcoal,
                 ),
               ),
               onPressed: () => Get.back(),
@@ -403,7 +411,7 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 18,
-                color: _textPrimary,
+                color: _charcoal,
               ),
             ),
             actions: [
@@ -412,18 +420,14 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: selectedDateRange != null
-                        ? _black.withOpacity(0.08)
-                        : _textPrimary.withOpacity(0.06),
+                        ? _charcoal.withOpacity(0.08)
+                        : _charcoal.withOpacity(0.06),
                     borderRadius: BorderRadius.circular(10),
                     border: selectedDateRange != null
-                        ? Border.all(color: _black.withOpacity(0.3))
+                        ? Border.all(color: _charcoal.withOpacity(0.3))
                         : null,
                   ),
-                  child: Icon(
-                    Icons.tune_rounded,
-                    size: 18,
-                    color: selectedDateRange != null ? _black : _textPrimary,
-                  ),
+                  child: Icon(Icons.tune_rounded, size: 18, color: _charcoal),
                 ),
                 onPressed: _selectDateRange,
               ),
@@ -435,9 +439,10 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
             ? _buildShimmer()
             : RefreshIndicator(
                 onRefresh: loadAttendanceSummary,
-                color: _black,
+                color: _charcoal,
                 backgroundColor: _card,
                 child: CustomScrollView(
+                  cacheExtent: 10000,
                   slivers: [
                     SliverToBoxAdapter(
                       child: Padding(
@@ -461,7 +466,7 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
                                   style: const TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
-                                    color: _textSecondary,
+                                    color: _mediumGray,
                                     letterSpacing: 1.4,
                                   ),
                                 ),
@@ -469,7 +474,7 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
                                   '${filteredSummary.length} days',
                                   style: const TextStyle(
                                     fontSize: 12,
-                                    color: _black,
+                                    color: _charcoal,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -488,7 +493,7 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
                               (ctx, i) => Padding(
                                 padding: const EdgeInsets.fromLTRB(
                                   20,
-                                  0,
+                                  4,
                                   20,
                                   12,
                                 ),
@@ -498,7 +503,7 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
                             ),
                           ),
 
-                    const SliverToBoxAdapter(child: SizedBox(height: 30)),
+                    const SliverToBoxAdapter(child: SizedBox(height: 50)),
                   ],
                 ),
               ),
@@ -520,38 +525,42 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
   Widget _shimmerDaySection() {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: _card,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _border),
+        color: _pureWhite,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _lightGray),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _shimmerBox(width: 48, height: 48, radius: 12),
+              _shimmerBox(width: 50, height: 50, radius: 25),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _shimmerBox(width: 100, height: 16, radius: 6),
+                    _shimmerBox(width: 120, height: 16, radius: 6),
                     const SizedBox(height: 8),
-                    _shimmerBox(width: 80, height: 12, radius: 6),
+                    _shimmerBox(width: 90, height: 12, radius: 4),
                   ],
                 ),
               ),
-              _shimmerBox(width: 60, height: 24, radius: 12),
+              _shimmerBox(width: 70, height: 24, radius: 12),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
+          const Divider(height: 1, color: _lightGray, thickness: 0.5),
+          const SizedBox(height: 18),
           Row(
             children: [
-              Expanded(child: _shimmerBox(height: 60, radius: 12)),
-              const SizedBox(width: 12),
-              Expanded(child: _shimmerBox(height: 60, radius: 12)),
+              Expanded(child: _shimmerBox(height: 36, radius: 10)),
+              const SizedBox(width: 14),
+              Expanded(child: _shimmerBox(height: 36, radius: 10)),
+              const SizedBox(width: 14),
+              Expanded(child: _shimmerBox(height: 36, radius: 10)),
             ],
           ),
         ],
@@ -574,7 +583,7 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
           gradient: LinearGradient(
             begin: Alignment.centerLeft,
             end: Alignment.centerRight,
-            colors: const [_shimmerBase, _shimmerHighlight, _shimmerBase],
+            colors: const [_lightGray, _offWhite, _lightGray],
             stops: [
               (_shimmerAnim.value - 1).clamp(0.0, 1.0),
               (_shimmerAnim.value).clamp(0.0, 1.0),
@@ -610,130 +619,98 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
     final completeDaysPayroll =
         attendance['total_complete_days'] ?? completeDays;
 
-    return Column(
-      children: [
-        // Payroll Summary Row (if available)
-        if (monthlySummary != null) ...[
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatChip(
-                  label: 'Regular Hours',
-                  value: totalRegular,
-                  icon: Icons.schedule_rounded,
-                  color: _green,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildStatChip(
-                  label: 'Total OT',
-                  value: totalOT,
-                  icon: Icons.access_time_filled,
-                  color: _purple,
-                ),
-              ),
-            ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      clipBehavior: Clip.none,
+      child: Row(
+        children: [
+          _buildMiniStat(
+            'Regular',
+            totalRegular,
+            Icons.timer_outlined,
+            _softGreen,
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatChip(
-                  label: 'Days Present',
-                  value: daysPresent.toString(),
-                  icon: Icons.calendar_today_rounded,
-                  color: _blue,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildStatChip(
-                  label: 'Complete Days',
-                  value: completeDaysPayroll.toString(),
-                  icon: Icons.check_circle_rounded,
-                  color: _green,
-                ),
-              ),
-            ],
+          _buildMiniStat(
+            'Overtime',
+            totalOT,
+            Icons.auto_awesome_rounded,
+            _softPurple,
           ),
-          const SizedBox(height: 10),
+          _buildMiniStat(
+            'Present',
+            '$daysPresent d',
+            Icons.calendar_today_rounded,
+            _softBlue,
+          ),
+          _buildMiniStat(
+            'Complete',
+            '$completeDaysPayroll d',
+            Icons.check_circle_outline_rounded,
+            _softGreen,
+          ),
+          _buildMiniStat(
+            'Partial',
+            '$partialDays d',
+            Icons.pending_actions_rounded,
+            _softAmber,
+          ),
         ],
-
-        // Original Stats Row
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatChip(
-                label: 'Total Days',
-                value: totalDays.toString(),
-                icon: Icons.calendar_today_rounded,
-                color: _black,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildStatChip(
-                label: 'Partial',
-                value: partialDays.toString(),
-                icon: Icons.pending_outlined,
-                color: _amber,
-              ),
-            ),
-          ],
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _buildStatChip({
-    required String label,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
+  Widget _buildMiniStat(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
+      width: 125,
+      margin: const EdgeInsets.only(right: 14),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: _card,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: _pureBlack.withOpacity(0.02),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: color, size: 16),
+          Row(
+            children: [
+              Icon(icon, size: 15, color: color),
+              const SizedBox(width: 6),
+              Text(
+                label.toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w400,
+                  color: _mediumGray,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Text(
             value,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
             style: const TextStyle(
-              fontSize: 10,
-              color: _textSecondary,
-              fontWeight: FontWeight.w500,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: _charcoal,
+              letterSpacing: -0.5,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -748,20 +725,24 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: _black.withOpacity(0.06),
+              color: _charcoal.withOpacity(0.06),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: _black.withOpacity(0.2)),
+              border: Border.all(color: _charcoal.withOpacity(0.2)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.date_range_rounded, size: 14, color: _black),
+                const Icon(
+                  Icons.date_range_rounded,
+                  size: 14,
+                  color: _charcoal,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   '${DateFormat('d MMM').format(selectedDateRange!.start)} – ${DateFormat('d MMM y').format(selectedDateRange!.end)}',
                   style: const TextStyle(
                     fontSize: 12,
-                    color: _black,
+                    color: _charcoal,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -771,7 +752,7 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
                   child: const Icon(
                     Icons.close_rounded,
                     size: 14,
-                    color: _black,
+                    color: _charcoal,
                   ),
                 ),
               ],
@@ -783,9 +764,9 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
   }
 
   Widget _buildDayCard(Map<dynamic, dynamic> day) {
-    final date = DateTime.parse(day['date']);
-    final isToday =
-        DateFormat('yyyy-MM-dd').format(DateTime.now()) == day['date'];
+    final dateStr = day['date'] as String;
+    final date = DateTime.parse(dateStr);
+    final isToday = DateFormat('yyyy-MM-dd').format(DateTime.now()) == dateStr;
     final checkIn = day['check_in'];
     final checkOut = day['check_out'];
     final hasCheckOut =
@@ -794,72 +775,119 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
         checkOut['time'].toString().isNotEmpty;
     final duration = day['duration'] ?? '';
 
-    // Get payroll data for this specific day
-    final dayType = _getDayType(day['date']);
-    final dailyData = _getDailyDataForDate(day['date']);
+    final dayType = _getDayType(dateStr);
+    final dailyData = _getDailyDataForDate(dateStr);
     final formatted = dailyData?['formatted'] as Map<String, dynamic>? ?? {};
     final holidayName = dailyData?['holiday_name'] as String?;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: _card,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isToday ? _black.withOpacity(0.3) : _border,
-          width: isToday ? 1.5 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: isToday
-                ? _black.withOpacity(0.08)
-                : Colors.black.withOpacity(0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          // Date header
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-            decoration: BoxDecoration(
-              color: isToday
-                  ? _black.withOpacity(0.04)
-                  : const Color(0xFFF8FAFC),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(19),
-              ),
+    final isTargetMatch =
+        widget.targetDate != null && dateStr == widget.targetDate;
+
+    return AnimatedBuilder(
+      animation: _blinkCtrl,
+      builder: (context, child) {
+        final blinkingColor = Color.lerp(
+          _softRed,
+          _charcoal,
+          _blinkCtrl.value,
+        )!;
+        final isHighlighted = isTargetMatch && _highlightVisible;
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 800),
+          curve: Curves.easeOut,
+          key: isTargetMatch ? _targetKey : null,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: _card,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: isHighlighted
+                  ? blinkingColor
+                  : (isToday ? _charcoal.withOpacity(0.2) : _border),
+              width: isHighlighted ? 2.5 : 1,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: isHighlighted
+                    ? blinkingColor.withOpacity(0.15)
+                    : _pureBlack.withOpacity(0.02),
+                blurRadius: isHighlighted ? 16 : 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Stack(
+            children: [
+              child!,
+              if (isHighlighted)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: _shimmerAnim,
+                      builder: (context, _) {
+                        return Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(24),
+                            gradient: LinearGradient(
+                              begin: Alignment(_shimmerAnim.value - 1, -0.5),
+                              end: Alignment(_shimmerAnim.value, 0.5),
+                              colors: [
+                                Colors.white.withOpacity(0),
+                                _softRed.withOpacity(0.05),
+                                _softRed.withOpacity(0.02),
+                                Colors.white.withOpacity(0),
+                              ],
+                              stops: const [0.35, 0.5, 0.65, 1.0],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header: Date + Day Type + Status ──────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
             child: Row(
               children: [
-                // Calendar date block
+                // Minimal Date Circle
                 Container(
-                  width: 48,
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  width: 50,
+                  height: 50,
                   decoration: BoxDecoration(
-                    color: isToday ? _black : const Color(0xFFF3F4F6),
-                    borderRadius: BorderRadius.circular(12),
+                    color: isToday ? _charcoal : _offWhite,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: _lightGray, width: 1),
                   ),
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
                         DateFormat('d').format(date),
                         style: TextStyle(
                           fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: isToday ? Colors.white : _black,
+                          fontWeight: FontWeight.w600,
+                          color: isToday ? _pureWhite : _charcoal,
+                          height: 1.1,
                         ),
                       ),
                       Text(
                         DateFormat('MMM').format(date).toUpperCase(),
                         style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w400,
                           color: isToday
-                              ? Colors.white.withOpacity(0.8)
-                              : _black.withOpacity(0.7),
-                          letterSpacing: 0.8,
+                              ? _pureWhite.withOpacity(0.7)
+                              : _mediumGray,
+                          letterSpacing: 0.5,
                         ),
                       ),
                     ],
@@ -875,63 +903,47 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
                           Text(
                             DateFormat('EEEE').format(date),
                             style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: _textPrimary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: _charcoal,
+                              letterSpacing: -0.3,
                             ),
                           ),
                           if (isToday) ...[
                             const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 2,
+                                horizontal: 8,
+                                vertical: 3,
                               ),
                               decoration: BoxDecoration(
-                                color: _black,
+                                color: _charcoal,
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: const Text(
                                 'TODAY',
                                 style: TextStyle(
                                   fontSize: 9,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 0.6,
+                                  color: _pureWhite,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.5,
                                 ),
                               ),
                             ),
                           ],
                         ],
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 4),
                       Row(
                         children: [
+                          _buildDayTypeBadge(dayType, holidayName),
+                          const SizedBox(width: 8),
                           Text(
-                            '${day['total_checkins'] ?? 0} check-in${(day['total_checkins'] ?? 0) == 1 ? '' : 's'}',
+                            '• ${day['total_checkins'] ?? 0} logs',
                             style: const TextStyle(
                               fontSize: 12,
-                              color: _textSecondary,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          // Day type indicator
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _getDayTypeColor(dayType),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              _getDayTypeDisplay(dayType, holidayName),
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: _getDayTypeTextColor(dayType),
-                              ),
+                              color: _mediumGray,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
                         ],
@@ -939,93 +951,65 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
                     ],
                   ),
                 ),
-                // Status badge
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color:
-                        _getAttendanceStatus(hasCheckOut, day['date']) ==
-                            'Complete'
-                        ? _green.withOpacity(0.08)
-                        : _amber.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color:
-                          _getAttendanceStatus(hasCheckOut, day['date']) ==
-                              'Complete'
-                          ? _green.withOpacity(0.25)
-                          : _amber.withOpacity(0.25),
-                    ),
-                  ),
-                  child: Text(
-                    _getAttendanceStatus(hasCheckOut, day['date']),
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color:
-                          _getAttendanceStatus(hasCheckOut, day['date']) ==
-                              'Complete'
-                          ? _green
-                          : _amber,
-                    ),
-                  ),
-                ),
+                _buildStatusBadge(hasCheckOut, day['date']),
               ],
             ),
           ),
 
-          // Times row
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 18),
+            child: Divider(height: 1, color: _lightGray, thickness: 0.5),
+          ),
+
+          // ── Main Times Row ────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(18),
             child: Row(
               children: [
                 Expanded(
-                  child: _buildInOutCell(
-                    label: 'Check In',
+                  child: _buildTimeCell(
+                    label: 'IN',
                     time: checkIn?['time'],
                     image: checkIn?['image'],
+                    icon: Icons.login_outlined,
+                    color: _softGreen,
+                    date: day['date'],
                     lat: checkIn?['lat']?.toString(),
                     lang: checkIn?['lang']?.toString(),
-                    icon: Icons.login_rounded,
-                    color: _green,
-                    date: day['date'],
                   ),
                 ),
                 Container(
                   width: 1,
-                  height: 60,
-                  color: _border,
-                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                  height: 70,
+                  color: _lightGray,
+                  margin: const EdgeInsets.symmetric(horizontal: 14),
                 ),
                 Expanded(
-                  child: _buildInOutCell(
-                    label: 'Check Out',
+                  child: _buildTimeCell(
+                    label: 'OUT',
                     time: checkOut?['time'],
                     image: checkOut?['image'],
+                    icon: Icons.logout_outlined,
+                    color: _softRed,
+                    date: day['date'],
                     lat: checkOut?['lat']?.toString(),
                     lang: checkOut?['lang']?.toString(),
-                    icon: Icons.logout_rounded,
-                    color: _red,
-                    date: day['date'],
                   ),
                 ),
                 if (hasCheckOut && duration.isNotEmpty) ...[
                   Container(
                     width: 1,
-                    height: 60,
-                    color: _border,
-                    margin: const EdgeInsets.symmetric(horizontal: 12),
+                    height: 36,
+                    color: _lightGray,
+                    margin: const EdgeInsets.symmetric(horizontal: 14),
                   ),
                   Expanded(
-                    child: _buildInOutCell(
-                      label: 'Duration',
+                    child: _buildTimeCell(
+                      label: 'TOTAL',
                       time: duration,
                       image: null,
-                      icon: Icons.schedule_rounded,
-                      color: _black,
+                      icon: Icons.schedule_outlined,
+                      color: _charcoal,
                       date: day['date'],
                     ),
                   ),
@@ -1034,166 +1018,60 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
             ),
           ),
 
-          // Enhanced OT breakdown section
-          if (hasCheckOut && dailyData != null) ...[
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Divider(color: _border),
-                  const SizedBox(height: 12),
-
-                  // Regular hours and total OT
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildOTCell(
-                          label: 'Regular',
-                          value: formatted['regular'] ?? '0h 0m',
-                          color: _green,
-                          icon: Icons.work_outline,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildOTCell(
-                          label: 'Total OT',
-                          value: formatted['total_overtime'] ?? '0h 0m',
-                          color: _purple,
-                          icon: Icons.access_time_filled,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  // Detailed OT breakdown (only show if there's OT)
-                  if ((formatted['weekday_ot'] ?? '0h 0m') != '0h 0m' ||
-                      (formatted['sunday_ot'] ?? '0h 0m') != '0h 0m' ||
-                      (formatted['double_ot'] ?? '0h 0m') != '0h 0m') ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _bg,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: _border),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'OT Breakdown',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: _textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              if ((formatted['weekday_ot'] ?? '0h 0m') !=
-                                  '0h 0m') ...[
-                                Expanded(
-                                  child: _buildOTCell(
-                                    label: 'Normal OT',
-                                    value: formatted['weekday_ot'] ?? '0h 0m',
-                                    color: _blue,
-                                    icon: Icons.work_outline,
-                                  ),
-                                ),
-                              ],
-                              if ((formatted['sunday_ot'] ?? '0h 0m') !=
-                                  '0h 0m') ...[
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: _buildOTCell(
-                                    label: 'Sunday OT',
-                                    value: formatted['sunday_ot'] ?? '0h 0m',
-                                    color: _orange,
-                                    icon: Icons.weekend_outlined,
-                                  ),
-                                ),
-                              ],
-                              if ((formatted['double_ot'] ?? '0h 0m') !=
-                                  '0h 0m') ...[
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: _buildOTCell(
-                                    label: 'Double OT',
-                                    value: _formatDoubleOT(
-                                      formatted['double_ot'] ?? '0h 0m',
-                                    ),
-                                    color: _purple,
-                                    icon: Icons.star_outline,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
+          // ── OT Footer (Expandable) ───────────────────────────────────────
+          if (hasCheckOut && dailyData != null)
+            _buildExpandableOTFooter(dateStr, formatted),
         ],
       ),
     );
   }
 
-  Map<String, dynamic>? _getDailyDataForDate(String date) {
-    if (dailyBreakdown == null) return null;
-
-    final days = dailyBreakdown!['days'] as List<dynamic>? ?? [];
-    try {
-      return days.firstWhere((day) => day['date'] == date, orElse: () => null)
-          as Map<String, dynamic>?;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Widget _buildOTCell({
-    required String label,
-    required String value,
-    required Color color,
-    required IconData icon,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-                color: _textSecondary,
-              ),
-            ),
-          ],
+  Widget _buildDayTypeBadge(String dayType, String? holidayName) {
+    final color = _getDayTypeTextColor(dayType);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.1), width: 0.5),
+      ),
+      child: Text(
+        _getDayTypeDisplay(dayType, holidayName).toUpperCase(),
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          color: color,
+          letterSpacing: 0.5,
         ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: color,
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _buildInOutCell({
+  Widget _buildStatusBadge(bool hasCheckOut, String date) {
+    final status = _getAttendanceStatus(hasCheckOut, date);
+    final isComplete = status == 'Complete';
+    final color = isComplete ? _softGreen : _softAmber;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.1), width: 1),
+      ),
+      child: Text(
+        status.toUpperCase(),
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: color,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimeCell({
     required String label,
     required String? time,
     required String? image,
@@ -1205,120 +1083,350 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
   }) {
     final hasTime = time != null && time.isNotEmpty;
     final imageUrl = image != null ? '${ApiService.baseUrl}$image' : null;
-    final isDuration = label == 'Duration';
     final hasLoc =
-        !isDuration &&
-        lat != null &&
-        lat.isNotEmpty &&
-        lang != null &&
-        lang.isNotEmpty;
+        lat != null && lat.isNotEmpty && lang != null && lang.isNotEmpty;
 
-    return GestureDetector(
-      onTap: (!isDuration && imageUrl != null)
-          ? () => Get.to(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: _mediumGray,
+                  letterSpacing: 0.5,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (hasLoc) ...[
+              const SizedBox(width: 4),
+              Semantics(
+                label: 'Open location for $label in maps',
+                button: true,
+                child: GestureDetector(
+                  onTap: () => _openMap(lat, lang, label),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: _charcoal.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(
+                      Icons.map_outlined,
+                      size: 12,
+                      color: _charcoal,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (imageUrl != null)
+          GestureDetector(
+            onTap: () => Get.to(
               () => _ImagePreviewPage(
                 url: imageUrl,
-                label: label == 'Check In' ? 'IN' : 'OUT',
-                time: time!,
+                label: label == 'IN' ? 'IN' : 'OUT',
+                time: time ?? '',
                 date: date,
               ),
               transition: Transition.fadeIn,
-            )
-          : null,
-      child: Column(
-        children: [
-          if (!isDuration && imageUrl != null)
-            Container(
-              width: 48,
-              height: 48,
+            ),
+            child: Container(
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: color.withOpacity(0.2)),
+                color: _offWhite,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _border, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: _pureBlack.withOpacity(0.02),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               clipBehavior: Clip.antiAlias,
               child: CachedNetworkImage(
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
-                memCacheWidth: 96,
-                memCacheHeight: 96,
-                placeholder: (_, __) => Container(color: color.withOpacity(0.1)),
-                errorWidget: (_, __, ___) =>
-                    Icon(icon, color: color, size: 20),
+                memCacheWidth: 88,
+                memCacheHeight: 88,
+                placeholder: (_, __) => Container(color: _lightGray),
+                errorWidget: (_, __, ___) => Icon(icon, color: color, size: 20),
               ),
-            )
-          else
-            Icon(
-              icon,
-              color: hasTime ? color : const Color(0xFFCBD5E1),
-              size: 22,
             ),
-          const SizedBox(height: 6),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: (hasTime ? color : _mediumGray).withOpacity(0.05),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: hasTime ? color : _mediumGray, size: 20),
+          ),
+        const SizedBox(height: 8),
+        Text(
+          hasTime ? _formatTime(time) : '--:--',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            color: hasTime ? color : _mediumGray,
+            letterSpacing: -0.2,
+          ),
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildExpandableOTFooter(String date, Map<String, dynamic> formatted) {
+    final isExpanded = _expandedDates.contains(date);
+    final hasOT = (formatted['total_overtime'] ?? '0h 0m') != '0h 0m';
+    if (!hasOT) return const SizedBox.shrink();
+
+    final weekdayOT = formatted['weekday_ot'] ?? '0h 0m';
+    final sundayOT = formatted['sunday_ot'] ?? '0h 0m';
+    final doubleOT = formatted['double_ot'] ?? '0h 0m';
+
+    return Column(
+      children: [
+        Semantics(
+          label: isExpanded ? 'Collapse OT details' : 'Expand OT details',
+          button: true,
+          child: GestureDetector(
+            onTap: () {
+              setState(() {
+                if (isExpanded) {
+                  _expandedDates.remove(date);
+                } else {
+                  _expandedDates.add(date);
+                }
+              });
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              decoration: BoxDecoration(
+                color: _offWhite,
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(isExpanded ? 0 : 24),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: _softPurple.withOpacity(0.05),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome_outlined,
+                      size: 14,
+                      color: _softPurple,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'OT EARNED',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w400,
+                          color: _mediumGray,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      Text(
+                        formatted['total_overtime'] ?? '0h 0m',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: _charcoal,
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  if (!isExpanded) ...[
+                    if (weekdayOT != '0h 0m') _buildMiniOTPill('W', _softBlue),
+                    if (sundayOT != '0h 0m') _buildMiniOTPill('S', _softOrange),
+                    if (doubleOT != '0h 0m') _buildMiniOTPill('D', _softPurple),
+                    const SizedBox(width: 12),
+                  ],
+                  AnimatedRotation(
+                    turns: isExpanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 300),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 20,
+                      color: _mediumGray,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          child: isExpanded
+              ? Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                  decoration: BoxDecoration(
+                    color: _offWhite,
+                    borderRadius: const BorderRadius.vertical(
+                      bottom: Radius.circular(24),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      const Divider(
+                        height: 1,
+                        color: _lightGray,
+                        thickness: 0.5,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          if (weekdayOT != '0h 0m')
+                            Expanded(
+                              child: _buildDetailOTCard(
+                                'Weekday',
+                                weekdayOT,
+                                _softBlue,
+                                Icons.work_history_outlined,
+                              ),
+                            ),
+                          if (weekdayOT != '0h 0m' &&
+                              (sundayOT != '0h 0m' || doubleOT != '0h 0m'))
+                            const SizedBox(width: 10),
+                          if (sundayOT != '0h 0m')
+                            Expanded(
+                              child: _buildDetailOTCard(
+                                'Sunday',
+                                sundayOT,
+                                _softOrange,
+                                Icons.weekend_outlined,
+                              ),
+                            ),
+                          if (sundayOT != '0h 0m' && doubleOT != '0h 0m')
+                            const SizedBox(width: 10),
+                          if (doubleOT != '0h 0m')
+                            Expanded(
+                              child: _buildDetailOTCard(
+                                'Double',
+                                doubleOT,
+                                _softPurple,
+                                Icons.bolt_outlined,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDetailOTCard(
+    String label,
+    String value,
+    Color color,
+    IconData icon,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _pureWhite,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _lightGray),
+        boxShadow: [
+          BoxShadow(
+            color: _pureBlack.withOpacity(0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(height: 10),
           Text(
             label,
             style: const TextStyle(
               fontSize: 10,
-              color: _textSecondary,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w400,
+              color: _mediumGray,
             ),
           ),
-          const SizedBox(height: 4),
           Text(
-            hasTime ? _formatTime(time!) : '--:--',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: hasTime ? color : const Color(0xFFCBD5E1),
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: _charcoal,
             ),
           ),
-          if (!isDuration && imageUrl != null)
-            const Row(
-              children: [
-                Icon(
-                  Icons.touch_app_rounded,
-                  size: 9,
-                  color: Color(0xFF94A3B8),
-                ),
-                SizedBox(width: 2),
-                Text(
-                  'view',
-                  style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
-                ),
-              ],
-            ),
-
-          // Map button — only when location recorded
-          if (hasTime && hasLoc) ...[
-            const SizedBox(height: 6),
-            GestureDetector(
-              onTap: () => _openMap(lat, lang, label),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                decoration: BoxDecoration(
-                  color: _black.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(7),
-                  border: Border.all(color: _black.withOpacity(0.2)),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.location_on_rounded, size: 10, color: _black),
-                    SizedBox(width: 3),
-                    Text(
-                      'Map',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: _black,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );
+  }
+
+  Widget _buildMiniOTPill(String text, Color color) {
+    return Container(
+      margin: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.1), width: 0.5),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  Map<String, dynamic>? _getDailyDataForDate(String date) {
+    if (dailyBreakdown == null) return null;
+
+    final days = dailyBreakdown?['days'] as List<dynamic>? ?? [];
+    try {
+      return days.firstWhere((day) => day['date'] == date, orElse: () => null)
+          as Map<String, dynamic>?;
+    } catch (e) {
+      return null;
+    }
   }
 
   Future<void> _openMap(String? lat, String? lang, String label) async {
@@ -1326,12 +1434,12 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
       Get.snackbar(
         'No Location',
         'Location not available for this $label',
-        backgroundColor: const Color(0xFFD97706),
-        colorText: Colors.white,
+        backgroundColor: _softAmber,
+        colorText: _pureWhite,
         snackPosition: SnackPosition.BOTTOM,
         margin: const EdgeInsets.all(16),
         borderRadius: 14,
-        icon: const Icon(Icons.location_off_rounded, color: Colors.white),
+        icon: const Icon(Icons.location_off_outlined, color: _pureWhite),
       );
       return;
     }
@@ -1370,10 +1478,14 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: _black.withOpacity(0.06),
+              color: _charcoal.withOpacity(0.06),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.history_rounded, size: 48, color: _black),
+            child: const Icon(
+              Icons.history_rounded,
+              size: 48,
+              color: _charcoal,
+            ),
           ),
           const SizedBox(height: 20),
           Text(
@@ -1383,7 +1495,7 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: _textPrimary,
+              color: _charcoal,
             ),
           ),
           const SizedBox(height: 8),
@@ -1391,16 +1503,16 @@ class _DailyAttendancePageState extends State<DailyAttendancePage> with SingleTi
             selectedDateRange != null
                 ? 'Try a different date range'
                 : 'Start checking in to see your history',
-            style: const TextStyle(fontSize: 13, color: _textSecondary),
+            style: const TextStyle(fontSize: 13, color: _mediumGray),
           ),
           if (selectedDateRange != null) ...[
             const SizedBox(height: 20),
             TextButton.icon(
               onPressed: _clearFilters,
-              icon: const Icon(Icons.clear_rounded, size: 16, color: _black),
+              icon: const Icon(Icons.clear_rounded, size: 16, color: _charcoal),
               label: const Text(
                 'Clear filter',
-                style: TextStyle(color: _black, fontWeight: FontWeight.w600),
+                style: TextStyle(color: _charcoal, fontWeight: FontWeight.w600),
               ),
             ),
           ],

@@ -1,13 +1,16 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class ApiService {
   /// Runtime-mutable base URL — can be changed from Dev Settings on the login screen.
   static String baseUrl = _savedOrDefault();
   static final storage = GetStorage();
+  static Dio? _dio;
 
   static String _savedOrDefault() {
     final stored = GetStorage().read<String>('dev_base_url');
@@ -16,6 +19,88 @@ class ApiService {
     final defaultIp = dotenv.env['DEFAULT_SERVER_IP'] ?? '103.160.163.70';
     final defaultPort = dotenv.env['DEFAULT_SERVER_PORT'] ?? '8002';
     return 'http://$defaultIp:$defaultPort';
+  }
+
+  static Dio _client() {
+    _dio ??= Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 20),
+        sendTimeout: const Duration(minutes: 2),
+        receiveTimeout: const Duration(seconds: 30),
+        followRedirects: true,
+        validateStatus: (code) => code != null && code >= 200 && code < 500,
+      ),
+    );
+    return _dio!;
+  }
+
+  static Future<Response<dynamic>> _postWithRetry({
+    required String url,
+    required FormData data,
+    void Function(int sent, int total)? onSendProgress,
+    int maxRetries = 5,
+    Duration baseDelay = const Duration(seconds: 1),
+  }) async {
+    int attempt = 0;
+    while (true) {
+      try {
+        final res = await _client().post(
+          url,
+          data: data,
+          onSendProgress: onSendProgress,
+        );
+        if (res.statusCode != null &&
+            res.statusCode! >= 200 &&
+            res.statusCode! < 300) {
+          return res;
+        }
+        if (res.statusCode != null &&
+            res.statusCode! >= 500 &&
+            attempt < maxRetries) {
+          final wait = baseDelay * (1 << attempt);
+          await Future.delayed(wait);
+          attempt++;
+          continue;
+        }
+        throw DioException(
+          requestOptions: res.requestOptions,
+          response: res,
+          type: DioExceptionType.badResponse,
+        );
+      } on DioException catch (e) {
+        final isNetwork =
+            e.type == DioExceptionType.connectionError ||
+            e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.sendTimeout ||
+            e.type == DioExceptionType.receiveTimeout;
+        if (!isNetwork || attempt >= maxRetries) rethrow;
+        final results = await Connectivity().checkConnectivity();
+        final online = results.any((r) => r != ConnectivityResult.none);
+        if (!online) {
+          final stream = Connectivity().onConnectivityChanged;
+          final completer = Completer<void>();
+          late StreamSubscription sub;
+          sub = stream.listen((rs) {
+            if (rs.any((r) => r != ConnectivityResult.none)) {
+              sub.cancel();
+              completer.complete();
+            }
+          });
+          await completer.future.timeout(
+            const Duration(minutes: 2),
+            onTimeout: () async {
+              await sub.cancel();
+              return;
+            },
+          );
+        } else {
+          final wait = baseDelay * (1 << attempt);
+          await Future.delayed(wait);
+        }
+        attempt++;
+        continue;
+      }
+    }
   }
 
   // Login endpoint - Use dedicated login endpoint for secure authentication
@@ -126,13 +211,14 @@ class ApiService {
     String? lang,
     String? site,
     void Function(int sent, int total)? onProgress,
+    int maxRetries = 5,
   }) async {
     try {
-      final dio = Dio();
       final formData = FormData.fromMap({
         'user_id': attendanceData['user_id'].toString(),
         'time': attendanceData['time'],
         'date': attendanceData['date'],
+        'source': 'mobile',
         if (lat != null) 'lat': lat,
         if (lang != null) 'lang': lang,
         if (site != null) 'site': site,
@@ -143,12 +229,11 @@ class ApiService {
           ),
       });
 
-      final response = await dio.post(
-        '$baseUrl/attendance',
+      final response = await _postWithRetry(
+        url: '$baseUrl/attendance',
         data: formData,
-        onSendProgress: (sent, total) {
-          onProgress?.call(sent, total);
-        },
+        onSendProgress: (sent, total) => onProgress?.call(sent, total),
+        maxRetries: maxRetries,
       );
 
       if (response.statusCode == 201)
@@ -171,13 +256,14 @@ class ApiService {
     String? lang,
     String? site,
     void Function(int sent, int total)? onProgress,
+    int maxRetries = 5,
   }) async {
     try {
-      final dio = Dio();
       final formData = FormData.fromMap({
         'user_ids': json.encode(userIds),
         'time': time,
         'date': date,
+        'source': 'mobile',
         if (lat != null) 'lat': lat,
         if (lang != null) 'lang': lang,
         if (site != null) 'site': site,
@@ -188,12 +274,11 @@ class ApiService {
           ),
       });
 
-      final response = await dio.post(
-        '$baseUrl/attendance/bulk',
+      final response = await _postWithRetry(
+        url: '$baseUrl/attendance/bulk',
         data: formData,
-        onSendProgress: (sent, total) {
-          onProgress?.call(sent, total);
-        },
+        onSendProgress: (sent, total) => onProgress?.call(sent, total),
+        maxRetries: maxRetries,
       );
 
       if (response.statusCode == 201)
@@ -413,9 +498,9 @@ class ApiService {
     String? password,
     String? imagePath,
     void Function(int sent, int total)? onProgress,
+    int maxRetries = 5,
   }) async {
     try {
-      final dio = Dio();
       final formData = FormData.fromMap({
         'username': username,
         'role': role,
@@ -427,13 +512,49 @@ class ApiService {
           ),
       });
 
-      final response = await dio.put(
-        '$baseUrl/users/$userId',
-        data: formData,
-        onSendProgress: (sent, total) {
-          onProgress?.call(sent, total);
-        },
-      );
+      Response response;
+      int attempt = 0;
+      while (true) {
+        try {
+          response = await _client().put(
+            '$baseUrl/users/$userId',
+            data: formData,
+            onSendProgress: (sent, total) => onProgress?.call(sent, total),
+          );
+          break;
+        } on DioException catch (e) {
+          final isNetwork =
+              e.type == DioExceptionType.connectionError ||
+              e.type == DioExceptionType.connectionTimeout ||
+              e.type == DioExceptionType.sendTimeout ||
+              e.type == DioExceptionType.receiveTimeout;
+          if (!isNetwork || attempt >= maxRetries) rethrow;
+          final results = await Connectivity().checkConnectivity();
+          final online = results.any((r) => r != ConnectivityResult.none);
+          if (!online) {
+            final stream = Connectivity().onConnectivityChanged;
+            final completer = Completer<void>();
+            late StreamSubscription sub;
+            sub = stream.listen((rs) {
+              if (rs.any((r) => r != ConnectivityResult.none)) {
+                sub.cancel();
+                completer.complete();
+              }
+            });
+            await completer.future.timeout(
+              const Duration(minutes: 2),
+              onTimeout: () async {
+                await sub.cancel();
+                return;
+              },
+            );
+          } else {
+            final wait = Duration(seconds: 1) * (1 << attempt);
+            await Future.delayed(wait);
+          }
+          attempt++;
+        }
+      }
 
       if (response.statusCode == 200)
         return response.data as Map<String, dynamic>;
@@ -588,7 +709,7 @@ class ApiService {
     }
   }
 
-  // Get monthly performance 
+  // Get monthly performance
   static Future<Map<String, dynamic>> getMonthlyPerformance(
     int userId, {
     String? yearMonth,
@@ -599,8 +720,13 @@ class ApiService {
       if (yearMonth != null) {
         queryParams['year_month'] = yearMonth;
       }
-      final uri = Uri.parse('$baseUrl/monthly-performance').replace(queryParameters: queryParams);
-      final response = await http.get(uri, headers: {'Content-Type': 'application/json'});
+      final uri = Uri.parse(
+        '$baseUrl/monthly-performance',
+      ).replace(queryParameters: queryParams);
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
       if (response.statusCode == 200) {
         return json.decode(response.body);
       }
@@ -697,6 +823,7 @@ class ApiService {
       throw Exception('Network error: $e');
     }
   }
+
   // Get all holidays
   static Future<List<dynamic>> getHolidays() async {
     try {
@@ -709,6 +836,53 @@ class ApiService {
         return json.decode(response.body);
       } else {
         throw Exception('Failed to load holidays');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get OT Leaderboard
+  static Future<Map<String, dynamic>> getLeaderboard({
+    int? userId,
+    String? month,
+  }) async {
+    try {
+      final queryParams = <String, String>{};
+      if (userId != null) queryParams['userId'] = userId.toString();
+      if (month != null) queryParams['month'] = month;
+
+      final uri = Uri.parse(
+        '$baseUrl/employees/ot-leaderboard',
+      ).replace(queryParameters: queryParams.isEmpty ? null : queryParams);
+
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to load leaderboard');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Get employee by ID
+  static Future<Map<String, dynamic>> getEmployeeById(int id) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/employees/$id'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to load employee');
       }
     } catch (e) {
       throw Exception('Network error: $e');

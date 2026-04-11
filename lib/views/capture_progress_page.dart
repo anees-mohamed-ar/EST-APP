@@ -145,6 +145,7 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
         lat: widget.lat,
         lang: widget.lang,
         site: widget.siteName,
+        maxRetries: 8,
         onProgress: (sent, total) {
           if (total > 0) {
             final now = DateTime.now();
@@ -195,6 +196,7 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
         lat: widget.lat,
         lang: widget.lang,
         site: widget.siteName,
+        maxRetries: 8,
         onProgress: (sent, total) {
           if (total > 0) {
             final now = DateTime.now();
