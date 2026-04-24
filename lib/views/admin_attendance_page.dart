@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/api_service.dart';
+import '../widgets/electric_refresh_indicator.dart';
 
 // ─── Feed item types ──────────────────────────────────────────────────────────
 abstract class _FeedItem {}
@@ -49,9 +50,9 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
 
   // ── Date filter ───────────────────────────────────────────────────────────
   static DateTimeRange _defaultRange() => DateTimeRange(
-        start: DateTime(DateTime.now().year, DateTime.now().month, 1),
-        end: DateTime.now(),
-      );
+    start: DateTime(DateTime.now().year, DateTime.now().month, 1),
+    end: DateTime.now(),
+  );
   late DateTimeRange selectedRange = _defaultRange();
 
   // ── Scroll ────────────────────────────────────────────────────────────────
@@ -64,7 +65,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
   // ── Colors ────────────────────────────────────────────────────────────────
   static const _bg = Color(0xFFF8F9FA);
   static const _card = Color(0xFFFFFFFF);
-  static const _black = Color(0xFF0A0A0A);
+  static const _black = Color(0xFF2C2C2C); // Charcoal
   static const _green = Color(0xFF059669);
   static const _red = Color(0xFFDC2626);
   static const _amber = Color(0xFFD97706);
@@ -82,9 +83,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat();
-    _shimmerAnim = Tween<double>(begin: -2, end: 2).animate(
-      CurvedAnimation(parent: _shimmerCtrl, curve: Curves.easeInOut),
-    );
+    _shimmerAnim = Tween<double>(
+      begin: -2,
+      end: 2,
+    ).animate(CurvedAnimation(parent: _shimmerCtrl, curve: Curves.easeInOut));
     _scrollCtrl.addListener(_onScroll);
     _load();
   }
@@ -203,11 +205,9 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
     for (final day in _rawData) {
       final date = day['date'] as String;
       final users = day['users'] as List;
-      items.add(_DayHeader(
-        date: date,
-        count: users.length,
-        isToday: date == today,
-      ));
+      items.add(
+        _DayHeader(date: date, count: users.length, isToday: date == today),
+      );
       for (final u in users) {
         items.add(_UserRecord(user: u as Map<dynamic, dynamic>, date: date));
       }
@@ -279,7 +279,11 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
     if (!isEligible) return '';
     if (duration == null || duration.isEmpty) return '';
     int totalMin = 0;
-    final parts = duration.toLowerCase().trim().split(' ').where((p) => p.isNotEmpty);
+    final parts = duration
+        .toLowerCase()
+        .trim()
+        .split(' ')
+        .where((p) => p.isNotEmpty);
     for (final p in parts) {
       String valStr = '';
       String unit = '';
@@ -292,8 +296,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
         }
       }
       final v = int.tryParse(valStr) ?? 0;
-      if (unit.startsWith('h')) totalMin += v * 60;
-      else if (unit.startsWith('m')) totalMin += v;
+      if (unit.startsWith('h'))
+        totalMin += v * 60;
+      else if (unit.startsWith('m'))
+        totalMin += v;
     }
     final ot = totalMin - 540;
     if (ot <= 0) return '';
@@ -307,9 +313,14 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
-      body: NestedScrollView(
-        headerSliverBuilder: (ctx, _) => [_buildAppBar()],
-        body: _isLoading ? _buildShimmer() : _buildFeed(),
+      body: ElectricRefreshIndicator(
+        onRefresh: () => _load(),
+        color: _black,
+        backgroundColor: Colors.white,
+        child: NestedScrollView(
+          headerSliverBuilder: (ctx, _) => [_buildAppBar()],
+          body: _isLoading ? _buildShimmer() : _buildFeed(),
+        ),
       ),
     );
   }
@@ -329,8 +340,11 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
             color: _textPrimary.withOpacity(0.06),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: const Icon(Icons.arrow_back_ios_new_rounded,
-              size: 16, color: _textPrimary),
+          child: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 16,
+            color: _textPrimary,
+          ),
         ),
         onPressed: () => Get.back(),
       ),
@@ -358,15 +372,19 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.calendar_month_rounded,
-                    size: 14, color: _textSecondary),
+                const Icon(
+                  Icons.calendar_month_rounded,
+                  size: 14,
+                  color: _textSecondary,
+                ),
                 const SizedBox(width: 5),
                 Text(
                   '${DateFormat('d MMM').format(selectedRange.start)} – ${DateFormat('d MMM').format(selectedRange.end)}',
                   style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _textPrimary),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _textPrimary,
+                  ),
                 ),
               ],
             ),
@@ -395,7 +413,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
           filled: true,
           fillColor: _card,
           hintText: 'Search employee name or role…',
-          hintStyle: TextStyle(color: _textSecondary.withOpacity(0.7), fontSize: 14),
+          hintStyle: TextStyle(
+            color: _textSecondary.withOpacity(0.7),
+            fontSize: 14,
+          ),
           prefixIcon: Padding(
             padding: const EdgeInsets.all(12),
             child: Icon(
@@ -529,13 +550,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
 
   // ── Feed ──────────────────────────────────────────────────────────────────
   Widget _buildFeed() {
-    return RefreshIndicator(
-      onRefresh: () => _load(),
-      color: _black,
-      child: CustomScrollView(
-        controller: _scrollCtrl,
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
+    return CustomScrollView(
+      controller: _scrollCtrl,
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
           // Stats bar
           SliverToBoxAdapter(child: _buildStatsBar()),
 
@@ -544,8 +562,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
             SliverToBoxAdapter(child: _buildSearchLabel()),
 
           // Empty state
-          if (_feedItems.isEmpty)
-            SliverFillRemaining(child: _buildEmpty()),
+          if (_feedItems.isEmpty) SliverFillRemaining(child: _buildEmpty()),
 
           // Main feed — FLAT virtualized list
           if (_feedItems.isNotEmpty)
@@ -569,7 +586,9 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2.5, color: _black),
+                      strokeWidth: 2.5,
+                      color: _black,
+                    ),
                   ),
                 ),
               ),
@@ -584,11 +603,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        width: 32,
-                        height: 1,
-                        color: _border,
-                      ),
+                      Container(width: 32, height: 1, color: _border),
                       const SizedBox(width: 12),
                       Text(
                         'All records loaded',
@@ -599,11 +614,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                         ),
                       ),
                       const SizedBox(width: 12),
-                      Container(
-                        width: 32,
-                        height: 1,
-                        color: _border,
-                      ),
+                      Container(width: 32, height: 1, color: _border),
                     ],
                   ),
                 ),
@@ -612,8 +623,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
 
           const SliverToBoxAdapter(child: SizedBox(height: 40)),
         ],
-      ),
-    );
+      );
   }
 
   Widget _buildItem(_FeedItem item) {
@@ -753,15 +763,16 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
               color: h.isToday
                   ? _black
                   : (isSunday
-                      ? _red.withOpacity(0.08)
-                      : const Color(0xFFEFF6FF)),
+                        ? _red.withOpacity(0.08)
+                        : const Color(0xFFEFF6FF)),
               borderRadius: BorderRadius.circular(12),
               border: h.isToday
                   ? null
                   : Border.all(
                       color: isSunday
                           ? _red.withOpacity(0.2)
-                          : _border.withOpacity(0.8)),
+                          : _border.withOpacity(0.8),
+                    ),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -786,8 +797,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                     color: h.isToday
                         ? Colors.white.withOpacity(0.7)
                         : (isSunday
-                            ? _red.withOpacity(0.7)
-                            : _black.withOpacity(0.5)),
+                              ? _red.withOpacity(0.7)
+                              : _black.withOpacity(0.5)),
                   ),
                 ),
               ],
@@ -815,7 +826,9 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                       const SizedBox(width: 7),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 7, vertical: 2),
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: _black,
                           borderRadius: BorderRadius.circular(6),
@@ -835,12 +848,13 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                       const SizedBox(width: 7),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 7, vertical: 2),
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: _red.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                              color: _red.withOpacity(0.2)),
+                          border: Border.all(color: _red.withOpacity(0.2)),
                         ),
                         child: Text(
                           'SUNDAY',
@@ -899,6 +913,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
     final initial = username.isNotEmpty ? username[0].toUpperCase() : '?';
     final otText = _calcOT(duration, u['is_ot_eligible'] ?? true);
     final pfp = u['pfp'] as String?;
+    final isOvernight = u['is_overnight'] == true;
+    final shiftDate = u['shift_date'] as String?;
 
     return RepaintBoundary(
       child: Container(
@@ -956,7 +972,13 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                   ),
                   const SizedBox(width: 8),
                   // Duration + OT chips
-                  _buildDurationChips(duration, otText, hasOut, date),
+                  _buildDurationChips(
+                    duration,
+                    otText,
+                    hasOut,
+                    date,
+                    isOvernight: isOvernight,
+                  ),
                 ],
               ),
               const SizedBox(height: 10),
@@ -973,6 +995,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                         lng: checkIn?['lang']?.toString(),
                         date: date,
                         color: _green,
+                        isNextDay: false,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -984,7 +1007,13 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                         lat: checkOut?['lat']?.toString(),
                         lng: checkOut?['lang']?.toString(),
                         date: date,
-                        color: _red,
+                        color: isOvernight ? Colors.indigo : _red,
+                        isNextDay:
+                            isOvernight || (checkOut?['is_next_day'] ?? false),
+                        shiftDate: shiftDate,
+                        iconOverride: isOvernight
+                            ? Icons.nightlight_round
+                            : null,
                       ),
                     ),
                   ],
@@ -1048,7 +1077,12 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
   }
 
   Widget _buildDurationChips(
-      String? duration, String otText, bool hasOut, String date) {
+    String? duration,
+    String otText,
+    bool hasOut,
+    String date, {
+    bool isOvernight = false,
+  }) {
     if (duration != null) {
       return Row(
         mainAxisSize: MainAxisSize.min,
@@ -1057,6 +1091,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
           if (otText.isNotEmpty) ...[
             const SizedBox(width: 5),
             _chip('+$otText OT', _purple, Icons.access_time_filled),
+          ],
+          if (isOvernight) ...[
+            const SizedBox(width: 5),
+            _chip('Overnight', Colors.indigo, Icons.nightlight_round),
           ],
         ],
       );
@@ -1105,13 +1143,14 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
     required String? lng,
     required String date,
     required Color color,
+    bool isNextDay = false,
+    String? shiftDate,
+    IconData? iconOverride,
   }) {
     final hasData = time != null;
     final imageUrl = image != null ? '${ApiService.baseUrl}$image' : null;
-    final hasLoc = lat != null &&
-        lat.isNotEmpty &&
-        lng != null &&
-        lng.isNotEmpty;
+    final hasLoc =
+        lat != null && lat.isNotEmpty && lng != null && lng.isNotEmpty;
 
     return GestureDetector(
       onTap: imageUrl != null
@@ -1132,7 +1171,12 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
             Row(
               children: [
                 // Thumbnail
-                _buildThumbnail(imageUrl, color, label),
+                _buildThumbnail(
+                  imageUrl,
+                  color,
+                  label,
+                  iconOverride: iconOverride,
+                ),
                 const SizedBox(width: 8),
                 // Time + label
                 Expanded(
@@ -1149,32 +1193,62 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        hasData
-                            ? _fmt(time!)
-                            : (label == 'OUT'
-                                ? (_isTodayActiveShift(date)
-                                    ? 'Active'
-                                    : 'Partial')
-                                : '--:--'),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          color: hasData
-                              ? color
-                              : (label == 'OUT'
-                                  ? (_isTodayActiveShift(date)
-                                      ? _green
-                                      : _amber)
-                                  : const Color(0xFFCBD5E1)),
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            hasData
+                                ? _fmt(time!)
+                                : (label == 'OUT'
+                                      ? (_isTodayActiveShift(date)
+                                            ? 'Active'
+                                            : 'Partial')
+                                      : '--:--'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: hasData
+                                  ? color
+                                  : (label == 'OUT'
+                                        ? (_isTodayActiveShift(date)
+                                              ? _green
+                                              : _amber)
+                                        : const Color(0xFFCBD5E1)),
+                            ),
+                          ),
+                          if (isNextDay && hasData) ...[
+                            const SizedBox(height: 2),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: color.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: Text(
+                                shiftDate != null
+                                    ? '(${DateFormat('MMM d').format(DateTime.parse(shiftDate))})'
+                                    : '(next day)',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w600,
+                                  color: color,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       if (imageUrl != null)
                         Row(
                           children: [
-                            Icon(Icons.touch_app_rounded,
-                                size: 9,
-                                color: _textSecondary.withOpacity(0.5)),
+                            Icon(
+                              Icons.touch_app_rounded,
+                              size: 9,
+                              color: _textSecondary.withOpacity(0.5),
+                            ),
                             const SizedBox(width: 2),
                             Text(
                               'tap photo',
@@ -1194,10 +1268,16 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
             if (hasData && hasLoc) ...[
               const SizedBox(height: 6),
               GestureDetector(
-                onTap: () => _openMap(lat, lng, label == 'IN' ? 'Check-In' : 'Check-Out'),
+                onTap: () => _openMap(
+                  lat,
+                  lng,
+                  label == 'IN' ? 'Check-In' : 'Check-Out',
+                ),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: _black.withOpacity(0.05),
                     borderRadius: BorderRadius.circular(8),
@@ -1206,8 +1286,11 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.location_on_rounded,
-                          size: 10, color: _textSecondary),
+                      Icon(
+                        Icons.location_on_rounded,
+                        size: 10,
+                        color: _textSecondary,
+                      ),
                       SizedBox(width: 3),
                       Text(
                         'View on Map',
@@ -1230,7 +1313,12 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
 
   /// Small thumbnail with lazy loading via CachedNetworkImage.
   /// Using [memCacheWidth] = 80px to cap memory usage per thumbnail.
-  Widget _buildThumbnail(String? imageUrl, Color color, String label) {
+  Widget _buildThumbnail(
+    String? imageUrl,
+    Color color,
+    String label, {
+    IconData? iconOverride,
+  }) {
     return Container(
       width: 38,
       height: 38,
@@ -1248,18 +1336,25 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
               // Fade in instead of jump
               fadeInDuration: const Duration(milliseconds: 250),
               placeholder: (_, __) => Icon(
-                label == 'IN' ? Icons.login_rounded : Icons.logout_rounded,
+                iconOverride ??
+                    (label == 'IN'
+                        ? Icons.login_rounded
+                        : Icons.logout_rounded),
                 color: color.withOpacity(0.3),
                 size: 16,
               ),
               errorWidget: (_, __, ___) => Icon(
-                label == 'IN' ? Icons.login_rounded : Icons.logout_rounded,
+                iconOverride ??
+                    (label == 'IN'
+                        ? Icons.login_rounded
+                        : Icons.logout_rounded),
                 color: color.withOpacity(0.4),
                 size: 16,
               ),
             )
           : Icon(
-              label == 'IN' ? Icons.login_rounded : Icons.logout_rounded,
+              iconOverride ??
+                  (label == 'IN' ? Icons.login_rounded : Icons.logout_rounded),
               color: color.withOpacity(0.35),
               size: 16,
             ),
@@ -1267,8 +1362,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
   }
 
   // ── Image & map actions ───────────────────────────────────────────────────
-  void _openImagePreview(
-      String url, String label, String time, String date) {
+  void _openImagePreview(String url, String label, String time, String date) {
     Get.to(
       () => _ImagePreviewPage(url: url, label: label, time: time, date: date),
       transition: Transition.fadeIn,
@@ -1277,24 +1371,31 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
 
   Future<void> _openMap(String? lat, String? lng, String label) async {
     if (lat == null || lng == null || lat.isEmpty || lng.isEmpty) {
-      Get.snackbar('No Location', 'Location unavailable for $label',
-          backgroundColor: _amber,
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM,
-          margin: const EdgeInsets.all(16),
-          borderRadius: 14);
+      Get.snackbar(
+        'No Location',
+        'Location unavailable for $label',
+        backgroundColor: _amber,
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+        margin: const EdgeInsets.all(16),
+        borderRadius: 14,
+      );
       return;
     }
     final uri = Uri.parse(
-        'https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+    );
     try {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
-      Get.snackbar('Error', 'Could not open Google Maps',
-          backgroundColor: _red,
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM,
-          margin: const EdgeInsets.all(16));
+      Get.snackbar(
+        'Error',
+        'Could not open Google Maps',
+        backgroundColor: _red,
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+        margin: const EdgeInsets.all(16),
+      );
     }
   }
 
@@ -1340,18 +1441,23 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
             TextButton.icon(
               onPressed: _clearSearch,
               icon: const Icon(Icons.close_rounded, size: 16, color: _black),
-              label: const Text('Clear search',
-                  style: TextStyle(
-                      color: _black, fontWeight: FontWeight.w700)),
+              label: const Text(
+                'Clear search',
+                style: TextStyle(color: _black, fontWeight: FontWeight.w700),
+              ),
             )
           else
             TextButton.icon(
               onPressed: _pickDateRange,
-              icon: const Icon(Icons.date_range_rounded,
-                  size: 16, color: _black),
-              label: const Text('Change date range',
-                  style: TextStyle(
-                      color: _black, fontWeight: FontWeight.w700)),
+              icon: const Icon(
+                Icons.date_range_rounded,
+                size: 16,
+                color: _black,
+              ),
+              label: const Text(
+                'Change date range',
+                style: TextStyle(color: _black, fontWeight: FontWeight.w700),
+              ),
             ),
         ],
       ),
@@ -1383,8 +1489,9 @@ class _ImagePreviewPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final formattedTime = () {
       try {
-        final dt = DateFormat('HH:mm:ss')
-            .parse(time.length == 5 ? '$time:00' : time);
+        final dt = DateFormat(
+          'HH:mm:ss',
+        ).parse(time.length == 5 ? '$time:00' : time);
         return DateFormat('hh:mm:ss a').format(dt);
       } catch (_) {
         return time;
@@ -1449,8 +1556,11 @@ class _ImagePreviewPage extends StatelessWidget {
                   errorWidget: (_, __, ___) => Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.broken_image_outlined,
-                          color: Colors.white.withOpacity(0.3), size: 64),
+                      Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white.withOpacity(0.3),
+                        size: 64,
+                      ),
                       const SizedBox(height: 12),
                       Text(
                         'Image unavailable',

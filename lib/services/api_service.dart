@@ -211,7 +211,7 @@ class ApiService {
     String? lang,
     String? site,
     void Function(int sent, int total)? onProgress,
-    int maxRetries = 5,
+    int maxRetries = 0, // Set to 0 for non-idempotent operations to prevent duplicate uploads
   }) async {
     try {
       final formData = FormData.fromMap({
@@ -256,7 +256,7 @@ class ApiService {
     String? lang,
     String? site,
     void Function(int sent, int total)? onProgress,
-    int maxRetries = 5,
+    int maxRetries = 0, // Set to 0 for non-idempotent operations to prevent duplicate uploads
   }) async {
     try {
       final formData = FormData.fromMap({
@@ -297,32 +297,66 @@ class ApiService {
       final now = DateTime.now();
       final dateStr =
           '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final yesterday = now.subtract(const Duration(days: 1));
+      final yesterdayStr =
+          '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}';
 
-      final endpointUrl = '$baseUrl/attendance?userid=$userId&date=$dateStr';
-      print('📡 Frontend calling endpoint: $endpointUrl');
+      // We fetch all records for the user without date filter to see the full context
+      // The backend already orders by created_at DESC
+      final endpointUrl = '$baseUrl/attendance?userid=$userId';
+      print('📡 Frontend calling status-aware endpoint: $endpointUrl');
 
       final response = await http.get(
         Uri.parse(endpointUrl),
         headers: {'Content-Type': 'application/json'},
       );
 
-      print('📡 Response status: ${response.statusCode}');
-      print('📡 Response body: ${response.body}');
-
       if (response.statusCode == 200) {
         List<dynamic> allRecords = json.decode(response.body);
-        print('📊 Raw records from API: $allRecords');
+        
+        if (allRecords.isEmpty) return [];
 
-        // Filter records for today's date and current user
-        final filteredRecords = allRecords
-            .where(
-              (record) =>
-                  record['date'] == dateStr && record['user_id'] == userId,
-            )
-            .toList();
+        // 1. Check for Today's records
+        final todayRecords = allRecords.where((r) => r['date'] == dateStr).toList();
+        
+        // 2. Check for Yesterday's records
+        final yesterdayRecords = allRecords.where((r) => r['date'] == yesterdayStr).toList();
 
-        print('📊 Filtered records for today: $filteredRecords');
-        return filteredRecords;
+        // ── LOGIC 1: If we have an open check-in from Yesterday (Overnight) ──
+        // This is the most critical fix for the midnight button reset.
+        final openYesterday = yesterdayRecords.where((r) => r['s_no'] == 1).toList();
+        final closedYesterday = yesterdayRecords.any((r) => r['s_no'] == 2);
+
+        if (todayRecords.isEmpty && openYesterday.isNotEmpty && !closedYesterday) {
+          print('🌙 Overnight shift detected: Found open check-in from yesterday.');
+          return openYesterday;
+        }
+
+        // ── LOGIC 2: If we have Today's records, show them ──
+        if (todayRecords.isNotEmpty) {
+          // If we have an s_no=2 that is marked as overnight (shift_date is today), 
+          // yet the 'date' is yesterday, we should find it.
+          // However, the backend logic for overnight checkout saves s_no=2 with date=Day1.
+          // So if todayRecords is empty but we just checked out a few minutes ago for an overnight shift...
+          // we need to see that record too.
+          return todayRecords.reversed.toList(); // Return in order (s_no 1 then 2)
+        }
+
+        // ── LOGIC 3: Check for very recent overnight checkout ──
+        // If today is empty, but the very latest record is an overnight checkout (s_no=2) 
+        // that belongs to yesterday's date, we show "Shift Complete" for the previous shift
+        // so the user doesn't see "Check In" immediately and get confused.
+        if (allRecords.isNotEmpty) {
+          final latest = allRecords.first; // Records are DESC by created_at
+          if (latest['s_no'] == 2 && latest['date'] == yesterdayStr && !closedYesterday) {
+             // Wait, closedYesterday check above would be true if s_no 2 exists.
+          }
+          
+          // Simplified: If today is empty, we show Yesterday's records ONLY if they are an open check-in.
+          // Otherwise, we show empty (Check In for Today).
+        }
+
+        return todayRecords.reversed.toList();
       } else {
         throw Exception('Failed to load attendance records');
       }
@@ -872,20 +906,175 @@ class ApiService {
   }
 
   // Get employee by ID
-  static Future<Map<String, dynamic>> getEmployeeById(int id) async {
+  static Future<Map<String, dynamic>?> getEmployeeById(int userId) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/employees/$id'),
+        Uri.parse('$baseUrl/employees/$userId'),
         headers: {'Content-Type': 'application/json'},
       );
 
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else if (response.statusCode == 404) {
+        return null;
       } else {
-        throw Exception('Failed to load employee');
+        throw Exception('Failed to load employee: ${response.body}');
       }
     } catch (e) {
       throw Exception('Network error: $e');
     }
   }
+
+  // ── Vehicle Admin Endpoints ──────────────────────────────────────────────
+  
+  static Future<Map<String, dynamic>> getAdminVehicleOverview() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/admin/vehicles/overview'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load vehicle overview');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>> getAdminTrips({
+    int? userId,
+    int? vehicleId,
+    int page = 1,
+    int limit = 30,
+    String? search,
+    String? startDate,
+    String? endDate,
+  }) async {
+    try {
+      final queryParams = {
+        if (userId != null) 'userId': userId.toString(),
+        if (vehicleId != null) 'vehicleId': vehicleId.toString(),
+        'page': page.toString(),
+        'limit': limit.toString(),
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (startDate != null) 'startDate': startDate,
+        if (endDate != null) 'endDate': endDate,
+      };
+      final uri = Uri.parse('$baseUrl/admin/vehicles/trips').replace(queryParameters: queryParams);
+      final response = await http.get(uri, headers: {'Content-Type': 'application/json'});
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load admin trips');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>> getAdminFuel({
+    int? userId,
+    int? vehicleId,
+    int page = 1,
+    int limit = 30,
+    String? search,
+    String? startDate,
+    String? endDate,
+  }) async {
+    try {
+      final queryParams = {
+        if (userId != null) 'userId': userId.toString(),
+        if (vehicleId != null) 'vehicleId': vehicleId.toString(),
+        'page': page.toString(),
+        'limit': limit.toString(),
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (startDate != null) 'startDate': startDate,
+        if (endDate != null) 'endDate': endDate,
+      };
+      final uri = Uri.parse('$baseUrl/admin/vehicles/fuel').replace(queryParameters: queryParams);
+      final response = await http.get(uri, headers: {'Content-Type': 'application/json'});
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load admin fuel logs');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // ── Leave (EL/CL) APIs ──────────────────────────────────────────────────
+
+  /// Get cumulative EL/CL balance for a user
+  static Future<Map<String, dynamic>> getLeaveBalance(int userId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/leave/balance/$userId'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load leave balance');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Get blocked days (Sundays + holidays) for a month (YYYY-MM)
+  static Future<Map<String, dynamic>> getLeaveCalendar(String month) async {
+    try {
+      final uri = Uri.parse('$baseUrl/leave/calendar')
+          .replace(queryParameters: {'month': month});
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load leave calendar');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Submit a leave request
+  static Future<Map<String, dynamic>> submitLeaveRequest({
+    required int userId,
+    required String fromDate,
+    required String toDate,
+    required double elDays,
+    required double clDays,
+    String? reason,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/leave/request'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'user_id': userId,
+          'from_date': fromDate,
+          'to_date': toDate,
+          'el_days': elDays,
+          'cl_days': clDays,
+          if (reason != null && reason.isNotEmpty) 'reason': reason,
+        }),
+      );
+      final data = json.decode(response.body);
+      if (response.statusCode == 201) return data;
+      throw Exception(data['error'] ?? 'Failed to submit leave request');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Get leave requests for the logged-in employee
+  static Future<List<dynamic>> getMyLeaveRequests(int userId) async {
+    try {
+      final uri = Uri.parse('$baseUrl/leave/requests')
+          .replace(queryParameters: {'user_id': userId.toString()});
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['data'] ?? [];
+      }
+      throw Exception('Failed to load leave requests');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
 }
+

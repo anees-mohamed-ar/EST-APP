@@ -4,6 +4,8 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import '../services/api_service.dart';
 import '../widgets/shimmer_text.dart';
+import '../widgets/electric_refresh_indicator.dart';
+import 'package:intl/intl.dart';
 
 class MonthlySummaryPage extends StatefulWidget {
   final int? userId;
@@ -130,7 +132,7 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
       backgroundColor: _offWhite,
       body: Stack(
         children: [
-          RefreshIndicator(
+          ElectricRefreshIndicator(
             onRefresh: _loadMonthlyData,
             color: _charcoal,
             backgroundColor: _pureWhite,
@@ -736,6 +738,9 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
                         final checkOut = day['check_out'] as String?;
                         final dayType = day['day_type'] as String? ?? 'Weekday';
 
+                        final isOvernight = day['is_overnight'] == true;
+                        final shiftDate = day['shift_date'] as String?;
+
                         return Container(
                           margin: const EdgeInsets.symmetric(
                             horizontal: 4,
@@ -801,6 +806,30 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
                                             ),
                                           ),
                                         ),
+                                        if (isOvernight) ...[
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.indigo.withOpacity(
+                                                0.1,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                            child: const Text(
+                                              '🌙 Overnight',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.indigo,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),
@@ -854,18 +883,37 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
                                             color: _mediumGray,
                                           ),
                                         ),
-                                        Text(
-                                          checkOut != null
-                                              ? checkOut
-                                                    .split(':')
-                                                    .take(2)
-                                                    .join(':')
-                                              : '—',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                            color: _charcoal,
-                                          ),
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.baseline,
+                                          textBaseline: TextBaseline.alphabetic,
+                                          children: [
+                                            Text(
+                                              checkOut != null
+                                                  ? checkOut
+                                                        .split(':')
+                                                        .take(2)
+                                                        .join(':')
+                                                  : '—',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w500,
+                                                color: _charcoal,
+                                              ),
+                                            ),
+                                            if (isOvernight &&
+                                                shiftDate != null) ...[
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                '(${DateFormat('MMM d').format(DateTime.parse(shiftDate))})',
+                                                style: const TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.indigo,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ],
                                     ),

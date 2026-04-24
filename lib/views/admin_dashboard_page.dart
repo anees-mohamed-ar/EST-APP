@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
+import '../widgets/electric_refresh_indicator.dart';
 
 class AdminDashboardPage extends StatefulWidget {
   @override
@@ -65,6 +66,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     if (mounted) {
       setState(() => isRefreshing = false);
     }
+  }
+
+  String _getGreeting(int hour) {
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
   }
 
   // Today's status card - main focus
@@ -282,218 +289,226 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Welcome header
-            Container(
-              margin: const EdgeInsets.only(bottom: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$greeting, $name',
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
-                      color: pureBlack,
-                      letterSpacing: -0.5,
+      body: ElectricRefreshIndicator(
+        onRefresh: _loadDashboardData,
+        color: pureBlack,
+        backgroundColor: pureWhite,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.all(20),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Welcome header
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$greeting, $name',
+                            style: const TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w700,
+                              color: pureBlack,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            DateFormat("EEEE, MMMM d, yyyy").format(now),
+                            style: TextStyle(fontSize: 14, color: darkGray),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    DateFormat("EEEE, MMMM d, yyyy").format(now),
-                    style: TextStyle(fontSize: 14, color: darkGray),
-                  ),
-                ],
+
+                    // Today's Status - Main Focus Area
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(width: 4, height: 20, color: pureBlack),
+                              const SizedBox(width: 8),
+                              const Text(
+                                "TODAY'S STATUS",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: pureBlack,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          GridView.count(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            crossAxisCount: 2,
+                            mainAxisSpacing: 16,
+                            crossAxisSpacing: 16,
+                            childAspectRatio: 0.9,
+                            children: [
+                              _buildTodayStatusCard(
+                                title: 'Present Today',
+                                value: '$presentToday',
+                                icon: Icons.check_circle_outline,
+                                statusColor: successGreen,
+                                subtitle: '$absentToday absent',
+                                onTap: () => Get.toNamed('/admin-attendance'),
+                              ),
+                              _buildTodayStatusCard(
+                                title: 'Active Sites',
+                                value: '$activeSites',
+                                icon: Icons.location_on_outlined,
+                                statusColor: infoBlue,
+                                subtitle: 'of $totalSites total sites',
+                                onTap: () => Get.toNamed('/admin-sites'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Operational Reports Section
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(width: 4, height: 20, color: pureBlack),
+                              const SizedBox(width: 8),
+                              const Text(
+                                "OPERATIONAL REPORTS",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: pureBlack,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          GestureDetector(
+                            onTap: () => Get.toNamed('/fleet-reports'),
+                            child: Container(
+                              padding: const EdgeInsets.all(18),
+                              decoration: BoxDecoration(
+                                color: pureWhite,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: pureBlack.withOpacity(0.1), width: 1),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      color: infoBlue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(Icons.airport_shuttle_rounded, size: 24, color: infoBlue),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Fleet & Vehicle Reports',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700,
+                                            color: pureBlack,
+                                          ),
+                                        ),
+                                        Text(
+                                          'Employee-wise trips & fuel logs',
+                                          style: TextStyle(fontSize: 12, color: darkGray),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Icon(Icons.arrow_forward_ios, size: 14, color: darkGray.withOpacity(0.5)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Alerts Section
+                    // if (pendingCheckouts > 0) ...[
+                    // Container(
+                    //   padding: const EdgeInsets.all(16),
+                    //   decoration: BoxDecoration(
+                    //     color: warningOrange.withOpacity(0.1),
+                    //     borderRadius: BorderRadius.circular(16),
+                    //     border: Border.all(
+                    //       color: warningOrange.withOpacity(0.3),
+                    //       width: 1,
+                    //     ),
+                    //   ),
+                    //   child: Row(
+                    //     children: [
+                    //       Icon(
+                    //         Icons.warning_amber_rounded,
+                    //         color: warningOrange,
+                    //         size: 24,
+                    //       ),
+                    //       const SizedBox(width: 12),
+                    //       // Expanded(
+                    //       //   child: Column(
+                    //       //     crossAxisAlignment: CrossAxisAlignment.start,
+                    //       //     children: [
+                    //       //       Text(
+                    //       //         '$pendingCheckouts employees missed check-out',
+                    //       //         style: TextStyle(
+                    //       //           fontSize: 14,
+                    //       //           fontWeight: FontWeight.w600,
+                    //       //           color: pureBlack,
+                    //       //         ),
+                    //       //       ),
+                    //       //       Text(
+                    //       //         'Requires immediate attention',
+                    //       //         style: TextStyle(fontSize: 12, color: darkGray),
+                    //       //       ),
+                    //       //     ],
+                    //       //   ),
+                    //       // ),
+                    //       TextButton(
+                    //         onPressed: () => Get.toNamed('/admin-attendance'),
+                    //         child: Text(
+                    //           'View',
+                    //           style: TextStyle(
+                    //             color: warningOrange,
+                    //             fontWeight: FontWeight.w600,
+                    //           ),
+                    //         ),
+                    //       ),
+                    //     ],
+                    //   ),
+                    // ),
+                    // ],
+                  ],
+                ),
               ),
             ),
-
-            // Today's Status - Main Focus Area
-            Container(
-              margin: const EdgeInsets.only(bottom: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(width: 4, height: 20, color: pureBlack),
-                      const SizedBox(width: 8),
-                      const Text(
-                        "TODAY'S STATUS",
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: pureBlack,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    mainAxisSpacing: 16,
-                    crossAxisSpacing: 16,
-                    childAspectRatio: 0.9,
-                    children: [
-                      _buildTodayStatusCard(
-                        title: 'Present Today',
-                        value: '$presentToday',
-                        icon: Icons.check_circle_outline,
-                        statusColor: successGreen,
-                        subtitle: '$absentToday absent',
-                        onTap: () => Get.toNamed('/admin-attendance'),
-                      ),
-                      _buildTodayStatusCard(
-                        title: 'Active Sites',
-                        value: '$activeSites',
-                        icon: Icons.location_on_outlined,
-                        statusColor: infoBlue,
-                        subtitle: 'of $totalSites total sites',
-                        onTap: () => Get.toNamed('/admin-sites'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Quick Stats Row - Additional Insights
-            Container(
-              margin: const EdgeInsets.only(bottom: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(width: 4, height: 20, color: pureBlack),
-                      const SizedBox(width: 8),
-                      const Text(
-                        "QUICK INSIGHTS",
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: pureBlack,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildInsightCard(
-                          label: 'Attendance Rate',
-                          value: '$attendanceRate%',
-                          icon: Icons.trending_up,
-                          iconColor: successGreen,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildInsightCard(
-                          label: 'Site Activity',
-                          value: '$siteActivityRate%',
-                          icon: Icons.show_chart,
-                          iconColor: infoBlue,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildInsightCard(
-                          label: 'On Site Now',
-                          value: '$activeUsers',
-                          icon: Icons.person_pin_circle,
-                          iconColor: successGreen,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildInsightCard(
-                          label: 'Monthly OT',
-                          value: '$monthlyOtHours h',
-                          icon: Icons.access_time,
-                          iconColor: warningOrange,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Alerts Section
-            // if (pendingCheckouts > 0) ...[
-              // Container(
-              //   padding: const EdgeInsets.all(16),
-              //   decoration: BoxDecoration(
-              //     color: warningOrange.withOpacity(0.1),
-              //     borderRadius: BorderRadius.circular(16),
-              //     border: Border.all(
-              //       color: warningOrange.withOpacity(0.3),
-              //       width: 1,
-              //     ),
-              //   ),
-              //   child: Row(
-              //     children: [
-              //       Icon(
-              //         Icons.warning_amber_rounded,
-              //         color: warningOrange,
-              //         size: 24,
-              //       ),
-              //       const SizedBox(width: 12),
-              //       // Expanded(
-              //       //   child: Column(
-              //       //     crossAxisAlignment: CrossAxisAlignment.start,
-              //       //     children: [
-              //       //       Text(
-              //       //         '$pendingCheckouts employees missed check-out',
-              //       //         style: TextStyle(
-              //       //           fontSize: 14,
-              //       //           fontWeight: FontWeight.w600,
-              //       //           color: pureBlack,
-              //       //         ),
-              //       //       ),
-              //       //       Text(
-              //       //         'Requires immediate attention',
-              //       //         style: TextStyle(fontSize: 12, color: darkGray),
-              //       //       ),
-              //       //     ],
-              //       //   ),
-              //       // ),
-              //       TextButton(
-              //         onPressed: () => Get.toNamed('/admin-attendance'),
-              //         child: Text(
-              //           'View',
-              //           style: TextStyle(
-              //             color: warningOrange,
-              //             fontWeight: FontWeight.w600,
-              //           ),
-              //         ),
-              //       ),
-              //     ],
-              //   ),
-              // ),
-            // ],
           ],
         ),
       ),
     );
-  }
-
-  String _getGreeting(int hour) {
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
   }
 }

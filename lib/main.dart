@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -17,11 +18,20 @@ import 'views/splash_screen.dart';
 import 'views/holidays_page.dart';
 import 'views/leaderboard_page.dart';
 import 'views/profile_page.dart';
+import 'views/vehicle_page.dart';
+import 'views/admin_vehicle_reports_page.dart';
+import 'views/leave_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GetStorage.init();
   await dotenv.load(fileName: ".env");
+
+  debugPaintBaselinesEnabled = false;
+  debugPaintSizeEnabled = false;
+  debugPaintPointersEnabled = false;
+  debugPaintLayerBordersEnabled = false;
+  debugRepaintRainbowEnabled = false;
 
   // Boost image cache so network images don't re-decode on every navigation
   PaintingBinding.instance.imageCache.maximumSize = 200;
@@ -54,6 +64,7 @@ class MyApp extends StatelessWidget {
       // Smooth fling physics everywhere
       scrollBehavior: const _SmoothScrollBehavior(),
       getPages: [
+        GetPage(name: '/fleet-reports', page: () => AdminVehicleReportsPage()),
         GetPage(name: '/splash', page: () => SplashScreen()),
         GetPage(name: '/', page: () => LoginPage()),
         GetPage(name: '/login', page: () => LoginPage()),
@@ -66,7 +77,7 @@ class MyApp extends StatelessWidget {
         ),
         GetPage(name: '/daily-attendance', page: () => DailyAttendancePage()),
         GetPage(name: '/admin-attendance', page: () => AdminAttendancePage()),
-        GetPage(name: '/admin-groupings', page: () => AdminGroupingsPage()),
+
         GetPage(name: '/admin-dashboard', page: () => AdminDashboardPage()),
         GetPage(name: '/admin-sites', page: () => SitesPage()),
         GetPage(name: '/monthly-summary', page: () => MonthlySummaryPage()),
@@ -77,6 +88,8 @@ class MyApp extends StatelessWidget {
         GetPage(name: '/holidays', page: () => const HolidaysPage()),
         GetPage(name: '/leaderboard', page: () => const LeaderboardPage()),
         GetPage(name: '/profile', page: () => ProfilePage()),
+        GetPage(name: '/vehicle', page: () => VehiclePage()),
+        GetPage(name: '/leave', page: () => const LeavePage()),
       ],
     );
   }

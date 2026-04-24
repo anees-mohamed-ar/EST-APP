@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
+import '../widgets/electric_refresh_indicator.dart';
 
 class AdminMonthlySummaryPage extends StatefulWidget {
   @override
@@ -212,11 +213,12 @@ class _AdminMonthlySummaryPageState extends State<AdminMonthlySummaryPage> {
         ],
         body: isLoading
             ? const Center(child: CircularProgressIndicator(color: _charcoal))
-            : RefreshIndicator(
+            : ElectricRefreshIndicator(
                 onRefresh: _loadSummary,
                 color: _charcoal,
                 backgroundColor: _pureWhite,
                 child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   slivers: [
                     if (isSelectingUsers) ...[
                       SliverToBoxAdapter(child: _buildUserSelection()),

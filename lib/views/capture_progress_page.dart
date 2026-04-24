@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'dart:math' as math;
 import '../services/api_service.dart';
 import 'package:geolocator/geolocator.dart' as geo;
+import 'package:image/image.dart' as img_lib;
 
 class CaptureProgressPage extends StatefulWidget {
   final String imagePath;
@@ -247,29 +248,30 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
   }
 
   Future<String> _addOverlay(String imagePath) async {
-    // Basic reuse of the logic from CameraPage (Simplified for the progress page context)
     final File imageFile = File(imagePath);
     final bytes = await imageFile.readAsBytes();
-    const int maxWidth = 1920;
     
-    final ui.Codec codec = await ui.instantiateImageCodec(bytes, targetWidth: maxWidth);
+    // ── STEP 1: Decode & Resize ──────────────────────────────────────────────
+    // Resize to 1280px width to keep file size small while maintaining detail
+    const int targetWidth = 1280;
+    final ui.Codec codec = await ui.instantiateImageCodec(bytes, targetWidth: targetWidth);
     final ui.FrameInfo fi = await codec.getNextFrame();
     final ui.Image srcImage = fi.image;
 
+    final double w = srcImage.width.toDouble();
+    final double h = srcImage.height.toDouble();
+
+    // ── STEP 2: Draw Watermark ──────────────────────────────────────────────
     final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, srcImage.width.toDouble(), srcImage.height.toDouble()));
-    
-    canvas.drawImage(srcImage, Offset.zero, Paint()..filterQuality = FilterQuality.high);
-    
-    final h = srcImage.height.toDouble();
-    final w = srcImage.width.toDouble();
+    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, w, h));
+    canvas.drawImage(srcImage, Offset.zero, Paint()..filterQuality = FilterQuality.medium);
     
     final userData = ApiService.storage.read('user');
     final username = userData != null ? userData['username'] : 'N/A';
     final siteName = widget.siteName != null && widget.siteName!.isNotEmpty ? widget.siteName : 'N/A';
 
     final watermarkText = 
-      'MEPL-TRACK | ${DateFormat('MMM d, yyyy  hh:mm a').format(DateTime.now())} | LOC: ${widget.lat ?? "N/A"}, ${widget.lang ?? "N/A"}\n'
+      'EST-TRACK | ${DateFormat('MMM d, yyyy  hh:mm a').format(DateTime.now())} | LOC: ${widget.lat ?? "N/A"}, ${widget.lang ?? "N/A"}\n'
       'SITE: $siteName\n'
       'Captured by: $username';
 
@@ -278,33 +280,43 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
         text: watermarkText,
         style: TextStyle(
           color: Colors.white, 
-          fontSize: w * 0.018, 
+          fontSize: w * 0.02, 
           fontWeight: FontWeight.bold,
-          height: 1.2
+          height: 1.3
         ),
       ),
       textDirection: ui.TextDirection.ltr,
     );
     tp.layout(maxWidth: w - 40);
     
-    // Render the watermark background rectangle based on text height
-    const padding = 20.0;
-    final finalBarH = tp.height + padding * 2;
+    final padding = w * 0.02;
+    final barH = tp.height + padding * 2;
+    
     canvas.drawRect(
-      Rect.fromLTWH(0, h - finalBarH, w, finalBarH), 
-      Paint()..color = Colors.black.withOpacity(0.5)
+      Rect.fromLTWH(0, h - barH, w, barH), 
+      Paint()..color = Colors.black.withOpacity(0.6)
     );
     
-    tp.paint(canvas, Offset(20, h - finalBarH + padding));
+    tp.paint(canvas, Offset(padding, h - barH + padding));
 
+    // ── STEP 3: Finalize & Compress ──────────────────────────────────────────
     final picture = recorder.endRecording();
-    final img = await picture.toImage(srcImage.width, srcImage.height);
-    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-    final buffer = byteData!.buffer.asUint8List();
+    final finalUiImg = await picture.toImage(w.toInt(), h.toInt());
+    
+    // Convert to PNG first (standard Flutter path)
+    final pngData = await finalUiImg.toByteData(format: ui.ImageByteFormat.png);
+    final pngBytes = pngData!.buffer.asUint8List();
+    
+    // Decode PNG and Re-encode as high-compression JPEG
+    final decoded = img_lib.decodeImage(pngBytes);
+    if (decoded == null) throw Exception('Image processing failed');
+    
+    final jpgBytes = img_lib.encodeJpg(decoded, quality: 70);
     
     final directory = await File(imagePath).parent.path;
-    final String newPath = '$directory/processed_${DateTime.now().millisecondsSinceEpoch}.png';
-    await File(newPath).writeAsBytes(buffer);
+    final String newPath = '$directory/upload_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    await File(newPath).writeAsBytes(jpgBytes);
+    
     return newPath;
   }
 

@@ -5,6 +5,7 @@ import 'dart:io' show File;
 import 'dart:ui' as ui;
 import 'capture_progress_page.dart';
 import 'location_error_page.dart';
+import 'home_page.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:permission_handler/permission_handler.dart';
@@ -71,6 +72,10 @@ class _CameraPageState extends State<CameraPage> {
   bool _isLocationServiceEnabled = true;
   bool _isConnected = true;
 
+  // Timer for review screen
+  Timer? _reviewTimer;
+  int _previewCountdownSeconds = 60;
+
   @override
   void initState() {
     super.initState();
@@ -99,7 +104,40 @@ class _CameraPageState extends State<CameraPage> {
     _locationSubscription?.cancel();
     _serviceStatusSubscription?.cancel();
     _connectivitySubscription?.cancel();
+    _reviewTimer?.cancel();
     super.dispose();
+  }
+
+  void _startPreviewTimer() {
+    // Cancel previous timer if any
+    _reviewTimer?.cancel();
+
+    // Reset countdown to 60 seconds
+    _previewCountdownSeconds = 60;
+
+    // Start a new timer that ticks every second
+    _reviewTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      setState(() {
+        _previewCountdownSeconds--;
+      });
+
+      // When countdown reaches 0, auto-dismiss and go back to home
+      if (_previewCountdownSeconds <= 0) {
+        _cancelPreviewTimer();
+        Get.offAll(() => HomePage());
+      }
+    });
+  }
+
+  void _cancelPreviewTimer() {
+    _reviewTimer?.cancel();
+    _reviewTimer = null;
+    _previewCountdownSeconds = 60;
   }
 
   Future<void> _checkInitialStates() async {
@@ -427,6 +465,8 @@ class _CameraPageState extends State<CameraPage> {
           _cameraCtrl.isCameraInitialized.value = false;
           _cameraCtrl.onClose();
         });
+        // Start the 60-second preview timer
+        _startPreviewTimer();
       }
     } catch (e) {
       Get.snackbar(
@@ -441,6 +481,9 @@ class _CameraPageState extends State<CameraPage> {
 
   Future<void> _handleConfirm() async {
     if (_tempCapturedPath == null || _isActionInProgress) return;
+
+    // Cancel timer when user confirms
+    _cancelPreviewTimer();
 
     setState(() => _isActionInProgress = true);
 
@@ -471,10 +514,15 @@ class _CameraPageState extends State<CameraPage> {
       _isPreviewing = false; // go back to viewfinder
       _tempCapturedPath = null;
       checkPermissions();
+      // Restart timer if still in preview
+      if (_isPreviewing) {
+        _startPreviewTimer();
+      }
     }
   }
 
   void _handleRetake() {
+    _cancelPreviewTimer();
     setState(() {
       _isPreviewing = false;
       _tempCapturedPath = null;
@@ -1288,7 +1336,10 @@ class _CameraPageState extends State<CameraPage> {
                       const SizedBox(width: 16),
                       // Swipe to Confirm
                       Expanded(
-                        child: _ConfirmSwipeButton(onConfirm: _handleConfirm),
+                        child: _ConfirmSwipeButton(
+                          onConfirm: _handleConfirm,
+                          countdownSeconds: _previewCountdownSeconds,
+                        ),
                       ),
                     ],
                   ),
@@ -1389,10 +1440,59 @@ class _CameraPageState extends State<CameraPage> {
   }
 }
 
+// ─── Timer Progress Painter ───────────────────────────────────────────────────
+class _TimerProgressPainter extends CustomPainter {
+  final double progress;
+  final bool isWarning;
+
+  _TimerProgressPainter({required this.progress, required this.isWarning});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const double strokeWidth = 2.5;
+    final Paint progressPaint = Paint()
+      ..color = isWarning ? Colors.red : Colors.greenAccent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    final Paint backgroundPaint = Paint()
+      ..color = (isWarning ? Colors.red : Colors.greenAccent).withOpacity(0.15)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+
+    final Offset center = Offset(size.width / 2, size.height / 2);
+    final double radius = (size.width / 2) - (strokeWidth / 2);
+
+    // Draw background circle
+    canvas.drawCircle(center, radius, backgroundPaint);
+
+    // Draw progress arc
+    final Rect rect = Rect.fromCircle(center: center, radius: radius);
+    canvas.drawArc(
+      rect,
+      -3.14159 / 2, // Start from top
+      (progress * 2 * 3.14159), // Sweep angle based on progress
+      false,
+      progressPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_TimerProgressPainter oldDelegate) {
+    return progress != oldDelegate.progress ||
+        isWarning != oldDelegate.isWarning;
+  }
+}
+
 class _ConfirmSwipeButton extends StatefulWidget {
   final VoidCallback onConfirm;
+  final int countdownSeconds;
 
-  const _ConfirmSwipeButton({required this.onConfirm});
+  const _ConfirmSwipeButton({
+    required this.onConfirm,
+    this.countdownSeconds = 60,
+  });
 
   @override
   State<_ConfirmSwipeButton> createState() => _ConfirmSwipeButtonState();
@@ -1485,13 +1585,20 @@ class _ConfirmSwipeButtonState extends State<_ConfirmSwipeButton>
         const thumbSize = 52.0;
         final maxSwipe = totalWidth - thumbSize - 8;
 
+        final isTimerCritical = widget.countdownSeconds <= 10;
+        final timerProgress = (widget.countdownSeconds / 60.0).clamp(0.0, 1.0);
+
         return Container(
           height: 60,
           decoration: BoxDecoration(
-            color: Colors.greenAccent.withOpacity(0.12),
+            color: isTimerCritical
+                ? Colors.red.withOpacity(0.08)
+                : Colors.greenAccent.withOpacity(0.12),
             borderRadius: BorderRadius.circular(30),
             border: Border.all(
-              color: Colors.greenAccent.withOpacity(0.3),
+              color: isTimerCritical
+                  ? Colors.red.withOpacity(0.3)
+                  : Colors.greenAccent.withOpacity(0.3),
               width: 1.5,
             ),
           ),
@@ -1504,16 +1611,19 @@ class _ConfirmSwipeButtonState extends State<_ConfirmSwipeButton>
                   builder: (_, pos, __) {
                     final t = (pos / maxSwipe).clamp(0.0, 1.0);
                     final opacity = (1.0 - t * 2.0).clamp(0.0, 1.0);
+                    final arrowColor = isTimerCritical
+                        ? Colors.red
+                        : Colors.greenAccent;
                     return Opacity(
                       opacity: opacity,
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const SizedBox(width: 40),
-                          const Text(
+                          Text(
                             'SWIPE TO PROCEED',
                             style: TextStyle(
-                              color: Colors.greenAccent,
+                              color: arrowColor,
                               fontSize: 10,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 1.5,
@@ -1526,9 +1636,9 @@ class _ConfirmSwipeButtonState extends State<_ConfirmSwipeButton>
                               builder: (_, __) {
                                 return Opacity(
                                   opacity: _arrowAnims[i].value,
-                                  child: const Icon(
+                                  child: Icon(
                                     Icons.chevron_right_rounded,
-                                    color: Colors.greenAccent,
+                                    color: arrowColor,
                                     size: 18,
                                   ),
                                 );
@@ -1542,10 +1652,16 @@ class _ConfirmSwipeButtonState extends State<_ConfirmSwipeButton>
                 ),
               ),
 
-              // ── Thumb ──────────────────────────────────────────────────────
+              // ── Thumb with Timer Indicator ─────────────────────────────────
               ValueListenableBuilder<double>(
                 valueListenable: _posNotifier,
                 builder: (context, pos, child) {
+                  final isTimerCritical = widget.countdownSeconds <= 10;
+                  final timerProgress = (widget.countdownSeconds / 60.0).clamp(
+                    0.0,
+                    1.0,
+                  );
+
                   return Positioned(
                     left: 4 + pos,
                     top: 4,
@@ -1553,24 +1669,57 @@ class _ConfirmSwipeButtonState extends State<_ConfirmSwipeButton>
                     child: GestureDetector(
                       onHorizontalDragUpdate: (d) => _onPanUpdate(d, maxSwipe),
                       onHorizontalDragEnd: (d) => _onPanEnd(d, maxSwipe),
-                      child: Container(
-                        width: thumbSize,
-                        decoration: BoxDecoration(
-                          color: Colors.greenAccent,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.greenAccent.withOpacity(0.4),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Circular progress ring showing timer countdown
+                          CustomPaint(
+                            size: const Size(thumbSize, thumbSize),
+                            painter: _TimerProgressPainter(
+                              progress: timerProgress,
+                              isWarning: isTimerCritical,
                             ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.arrow_forward_rounded,
-                          color: Colors.black,
-                          size: 24,
-                        ),
+                          ),
+                          // Main thumb button
+                          Container(
+                            width: thumbSize,
+                            decoration: BoxDecoration(
+                              color: isTimerCritical
+                                  ? Colors.red
+                                  : Colors.greenAccent,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color:
+                                      (isTimerCritical
+                                              ? Colors.red
+                                              : Colors.greenAccent)
+                                          .withOpacity(0.4),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  '${widget.countdownSeconds}',
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.arrow_forward_rounded,
+                                  color: Colors.black,
+                                  size: 16,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   );

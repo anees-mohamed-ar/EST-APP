@@ -3,6 +3,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import '../services/location_service.dart';
 
 class SplashScreen extends StatefulWidget {
   @override
@@ -186,9 +187,17 @@ class _SplashScreenState extends State<SplashScreen>
                 Navigator.pop(context);
                 _checkRequirements();
               } else {
-                // Not enabled, open settings
-                _waitingForLocationSettings = true;
-                await Geolocator.openLocationSettings();
+                // 📍 Trigger the system "Turn on Location" popup (Native)
+                bool actuallyTurnedOn = await LocationService().requestService();
+                
+                if (actuallyTurnedOn) {
+                  Navigator.pop(context);
+                  _checkRequirements();
+                } else {
+                  // Fallback: If they cancelled or the popup didn't work,
+                  // we wait for them to come back from manual settings or try again.
+                  _waitingForLocationSettings = true;
+                }
               }
             },
             child: const Text('RETRY / TURN ON'),
@@ -274,8 +283,8 @@ class _SplashScreenState extends State<SplashScreen>
     }
 
     final DateTime currentDate = DateTime.now();
-    final DateTime trialEndDate = DateTime(2026, 4, 15); // April 15, 2026
-    final DateTime warningDate = DateTime(2026, 4, 14); // April 14, 2026
+    final DateTime trialEndDate = DateTime(2026, 5, 30); // May 1, 2026 (Last day is April 30)
+    final DateTime warningDate = DateTime(2026, 4, 29); // April 29, 2026
 
     // Create date-only comparisons (ignore time)
     final DateTime currentDateOnly = DateTime(
@@ -346,7 +355,7 @@ class _SplashScreenState extends State<SplashScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    'Your trial version will expire tomorrow (April 15, 2026).',
+                    'Your trial version will expire after April 30, 2026.',
                     style: TextStyle(fontSize: 16),
                     textAlign: TextAlign.center,
                   ),
@@ -449,7 +458,7 @@ class TrialExpiredScreen extends StatelessWidget {
                   const SizedBox(height: 16),
 
                   const Text(
-                    'Your trial period has expired on April 15, 2026.',
+                    'Your trial period has expired on April 30, 2026.',
                     style: TextStyle(fontSize: 16, color: Colors.black87),
                     textAlign: TextAlign.center,
                   ),

@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import 'monthly_summary_page.dart';
+import '../widgets/electric_refresh_indicator.dart';
 
 class AdminMonthlySummaryNewPage extends StatefulWidget {
   @override
@@ -288,7 +289,7 @@ class _AdminMonthlySummaryNewPageState
                 //   ),
                 // User cards list
                 Expanded(
-                  child: RefreshIndicator(
+                  child: ElectricRefreshIndicator(
                     onRefresh: _loadSummary,
                     color: _primaryBlack,
                     backgroundColor: _pureWhite,
@@ -314,6 +315,7 @@ class _AdminMonthlySummaryNewPageState
                             ),
                           )
                         : ListView.builder(
+                            physics: const AlwaysScrollableScrollPhysics(),
                             padding: const EdgeInsets.all(20),
                             itemCount: filteredUsers.length,
                             itemBuilder: (context, index) {

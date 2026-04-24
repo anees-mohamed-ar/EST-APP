@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/api_service.dart';
+import '../widgets/electric_refresh_indicator.dart';
 
 class DailyAttendancePage extends StatefulWidget {
   final String? targetDate; // Format: YYYY-MM-DD for highlighting/scrolling
@@ -385,63 +386,64 @@ class _DailyAttendancePageState extends State<DailyAttendancePage>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
-      body: NestedScrollView(
-        headerSliverBuilder: (ctx, _) => [
-          SliverAppBar(
-            pinned: true,
-            backgroundColor: _bg,
-            elevation: 0,
-            leading: IconButton(
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _charcoal.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.arrow_back_ios_new_rounded,
-                  size: 16,
-                  color: _charcoal,
-                ),
-              ),
-              onPressed: () => Get.back(),
-            ),
-            title: const Text(
-              'Attendance History',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-                color: _charcoal,
-              ),
-            ),
-            actions: [
-              IconButton(
+      body: ElectricRefreshIndicator(
+        onRefresh: loadAttendanceSummary,
+        color: _charcoal,
+        backgroundColor: _card,
+        child: NestedScrollView(
+          headerSliverBuilder: (ctx, _) => [
+            SliverAppBar(
+              pinned: true,
+              backgroundColor: _bg,
+              elevation: 0,
+              leading: IconButton(
                 icon: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: selectedDateRange != null
-                        ? _charcoal.withOpacity(0.08)
-                        : _charcoal.withOpacity(0.06),
+                    color: _charcoal.withOpacity(0.06),
                     borderRadius: BorderRadius.circular(10),
-                    border: selectedDateRange != null
-                        ? Border.all(color: _charcoal.withOpacity(0.3))
-                        : null,
                   ),
-                  child: Icon(Icons.tune_rounded, size: 18, color: _charcoal),
+                  child: const Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    size: 16,
+                    color: _charcoal,
+                  ),
                 ),
-                onPressed: _selectDateRange,
+                onPressed: () => Get.back(),
               ),
-              const SizedBox(width: 8),
-            ],
-          ),
-        ],
-        body: isLoading
-            ? _buildShimmer()
-            : RefreshIndicator(
-                onRefresh: loadAttendanceSummary,
-                color: _charcoal,
-                backgroundColor: _card,
-                child: CustomScrollView(
+              title: const Text(
+                'Attendance History',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                  color: _charcoal,
+                ),
+              ),
+              actions: [
+                IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: selectedDateRange != null
+                          ? _charcoal.withOpacity(0.08)
+                          : _charcoal.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(10),
+                      border: selectedDateRange != null
+                          ? Border.all(color: _charcoal.withOpacity(0.3))
+                          : null,
+                    ),
+                    child: Icon(Icons.tune_rounded, size: 18, color: _charcoal),
+                  ),
+                  onPressed: _selectDateRange,
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
+          ],
+          body: isLoading
+              ? _buildShimmer()
+              : CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   cacheExtent: 10000,
                   slivers: [
                     SliverToBoxAdapter(
@@ -506,7 +508,7 @@ class _DailyAttendancePageState extends State<DailyAttendancePage>
                     const SliverToBoxAdapter(child: SizedBox(height: 50)),
                   ],
                 ),
-              ),
+        ),
       ),
     );
   }
@@ -779,6 +781,8 @@ class _DailyAttendancePageState extends State<DailyAttendancePage>
     final dailyData = _getDailyDataForDate(dateStr);
     final formatted = dailyData?['formatted'] as Map<String, dynamic>? ?? {};
     final holidayName = dailyData?['holiday_name'] as String?;
+    final isOvernight = dailyData?['is_overnight'] == true;
+    final shiftDate = dailyData?['shift_date'] as String?;
 
     final isTargetMatch =
         widget.targetDate != null && dateStr == widget.targetDate;
@@ -951,7 +955,7 @@ class _DailyAttendancePageState extends State<DailyAttendancePage>
                     ],
                   ),
                 ),
-                _buildStatusBadge(hasCheckOut, day['date']),
+                _buildStatusBadge(hasCheckOut, day['date'], isOvernight),
               ],
             ),
           ),
@@ -989,11 +993,16 @@ class _DailyAttendancePageState extends State<DailyAttendancePage>
                     label: 'OUT',
                     time: checkOut?['time'],
                     image: checkOut?['image'],
-                    icon: Icons.logout_outlined,
-                    color: _softRed,
+                    icon: isOvernight
+                        ? Icons.nightlight_round
+                        : Icons.logout_outlined,
+                    color: isOvernight ? Colors.indigo : _softRed,
                     date: day['date'],
                     lat: checkOut?['lat']?.toString(),
                     lang: checkOut?['lang']?.toString(),
+                    isNextDay:
+                        isOvernight || (checkOut?['is_next_day'] ?? false),
+                    shiftDate: shiftDate,
                   ),
                 ),
                 if (hasCheckOut && duration.isNotEmpty) ...[
@@ -1047,7 +1056,27 @@ class _DailyAttendancePageState extends State<DailyAttendancePage>
     );
   }
 
-  Widget _buildStatusBadge(bool hasCheckOut, String date) {
+  Widget _buildStatusBadge(bool hasCheckOut, String date, bool isOvernight) {
+    if (isOvernight) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.indigo.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.indigo.withOpacity(0.1), width: 1),
+        ),
+        child: const Text(
+          '🌙 OVERNIGHT',
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: Colors.indigo,
+            letterSpacing: 0.5,
+          ),
+        ),
+      );
+    }
+
     final status = _getAttendanceStatus(hasCheckOut, date);
     final isComplete = status == 'Complete';
     final color = isComplete ? _softGreen : _softAmber;
@@ -1080,6 +1109,8 @@ class _DailyAttendancePageState extends State<DailyAttendancePage>
     required String date,
     String? lat,
     String? lang,
+    bool isNextDay = false,
+    String? shiftDate,
   }) {
     final hasTime = time != null && time.isNotEmpty;
     final imageUrl = image != null ? '${ApiService.baseUrl}$image' : null;
@@ -1176,17 +1207,42 @@ class _DailyAttendancePageState extends State<DailyAttendancePage>
             child: Icon(icon, color: hasTime ? color : _mediumGray, size: 20),
           ),
         const SizedBox(height: 8),
-        Text(
-          hasTime ? _formatTime(time) : '--:--',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            color: hasTime ? color : _mediumGray,
-            letterSpacing: -0.2,
-          ),
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        Column(
+          children: [
+            Text(
+              hasTime ? _formatTime(time) : '--:--',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: hasTime ? color : _mediumGray,
+                letterSpacing: -0.2,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (isNextDay && hasTime) ...[
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  shiftDate != null
+                      ? '(${DateFormat('MMM d').format(DateTime.parse(shiftDate))})'
+                      : '(next day)',
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.indigo,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ],
     );

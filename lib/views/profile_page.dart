@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -5,6 +7,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/api_service.dart';
+import '../widgets/electric_refresh_indicator.dart';
 
 class ProfilePage extends StatefulWidget {
   @override
@@ -21,8 +24,8 @@ class _ProfilePageState extends State<ProfilePage>
   // ── Design tokens ──────────────────────────────────────────────────────────
   static const _bg = Color(0xFFF4F6FA);
   static const _cardColor = Color(0xFFFFFFFF);
-  static const _primary = Color(0xFF1A2340); // deep navy
-  static const _accent = Color(0xFF2C2C2C); // charcoal
+  static const _primary = Color(0xFF2C2C2C); // Charcoal primary
+  static const _accent = Color(0xFF2C2C2C);
   static const _accentLight = Color(0xFFF5F5F5);
   static const _success = Color(0xFF12B76A);
   static const _danger = Color(0xFFEF4444);
@@ -52,11 +55,26 @@ class _ProfilePageState extends State<ProfilePage>
         return;
       }
       final data = await ApiService.getEmployeeById(userData['id']);
-      if (mounted)
+      if (data != null && mounted) {
+        // Sync with local storage to keep other pages (like Home) updated
+        final updatedUser = Map<String, dynamic>.from(userData);
+        if (data['username'] != null)
+          updatedUser['username'] = data['username'];
+        if (data['role'] != null) updatedUser['role'] = data['role'];
+        if (data['pfp'] != null) updatedUser['pfp'] = data['pfp'];
+        if (data['full_name'] != null)
+          updatedUser['full_name'] = data['full_name'];
+        if (data['employee_name'] != null)
+          updatedUser['employee_name'] = data['employee_name'];
+        storage.write('user', updatedUser);
+
         setState(() {
           employeeData = data;
           isLoading = false;
         });
+      } else if (mounted) {
+        setState(() => isLoading = false);
+      }
     } catch (e) {
       if (mounted) setState(() => isLoading = false);
       Get.snackbar(
@@ -275,6 +293,251 @@ class _ProfilePageState extends State<ProfilePage>
     ),
   );
 
+  // ── ID CARD MODAL ─────────────────────────────────────────────────────────
+  void _showEnlargedIDCard({
+    required String title,
+    required String idNumber,
+    required IconData icon,
+    required Color color,
+    String? subtitle,
+  }) {
+    final isNA = idNumber == '—' || idNumber == 'N/A' || idNumber.isEmpty;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.7),
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, __, ___) {
+        return BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+          child: GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            child: Container(
+              color: Colors.transparent,
+              child: Center(
+                child: GestureDetector(
+                  onTap:
+                      () {}, // Prevent tap from closing when clicking on card
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0.0, end: 1.0),
+                    duration: const Duration(milliseconds: 350),
+                    curve: Curves.easeOutBack,
+                    builder: (context, value, child) {
+                      return Transform.scale(
+                        scale: value,
+                        child: Opacity(
+                          opacity: value.clamp(0.0, 1.0),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: Container(
+                      width: MediaQuery.of(context).size.width * 0.85,
+                      margin: const EdgeInsets.symmetric(horizontal: 24),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: color.withOpacity(0.4),
+                            blurRadius: 40,
+                            offset: const Offset(0, 15),
+                            spreadRadius: 5,
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Header
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 20,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [color.withOpacity(0.9), color],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Icon(
+                                      icon,
+                                      size: 32,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          title,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.white,
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                        if (subtitle != null) ...[
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            subtitle,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              color: Colors.white.withOpacity(
+                                                0.8,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      isNA ? 'NOT ISSUED' : 'VERIFIED',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Body
+                            Container(
+                              color: _cardColor,
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'ID NUMBER',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: _gray400,
+                                      letterSpacing: 1.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 16,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: color.withOpacity(0.08),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: color.withOpacity(0.2),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      isNA ? 'Not Available' : idNumber,
+                                      style: TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w800,
+                                        color: isNA ? _gray400 : _primary,
+                                        letterSpacing: isNA ? 0 : 2,
+                                        fontFamily: isNA ? null : 'monospace',
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: () {
+                                            Navigator.of(context).pop();
+                                          },
+                                          icon: const Icon(Icons.close),
+                                          label: const Text('Close'),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: _gray600,
+                                            side: BorderSide(color: _border),
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 12,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      if (!isNA) ...[
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: FilledButton.icon(
+                                            onPressed: () {
+                                              _copyValue(title, idNumber);
+                                            },
+                                            icon: const Icon(Icons.copy),
+                                            label: const Text('Copy'),
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor: color,
+                                              foregroundColor: Colors.white,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: 12,
+                                                  ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // ── ID CARD widget ─────────────────────────────────────────────────────────
   Widget _idProofCard({
     required String title,
@@ -284,140 +547,176 @@ class _ProfilePageState extends State<ProfilePage>
     String? subtitle,
   }) {
     final isNA = idNumber == '—' || idNumber == 'N/A' || idNumber.isEmpty;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _border, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: _shadow.withOpacity(0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
+    return Semantics(
+      button: true,
+      label: '$title card, tap to view details',
+      child: GestureDetector(
+        onTap: () => _showEnlargedIDCard(
+          title: title,
+          idNumber: idNumber,
+          icon: icon,
+          color: color,
+          subtitle: subtitle,
+        ),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _border, width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: _shadow.withOpacity(0.05),
+                blurRadius: 12,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Column(
-          children: [
-            // Card header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [color.withOpacity(0.85), color],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.20),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(icon, size: 20, color: Colors.white),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Column(
+              children: [
+                // Card header
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            letterSpacing: 0.3,
-                          ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [color.withOpacity(0.85), color],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.20),
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            subtitle,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.white.withOpacity(0.75),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.20),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      isNA ? 'NOT ISSUED' : 'VERIFIED',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                        child: Icon(icon, size: 20, color: Colors.white),
                       ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Card body
-            Container(
-              color: _cardColor,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'ID NUMBER',
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Semantics(
+                              label: title,
+                              child: Text(
+                                title,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ),
+                            if (subtitle != null) ...[
+                              const SizedBox(height: 2),
+                              Semantics(
+                                label: subtitle,
+                                child: Text(
+                                  subtitle,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.white.withOpacity(0.75),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.20),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          isNA ? 'NOT ISSUED' : 'VERIFIED',
                           style: const TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
-                            color: _gray400,
-                            letterSpacing: 1.0,
+                            color: Colors.white,
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          isNA ? 'Not Available' : idNumber,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: isNA ? _gray400 : _primary,
-                            letterSpacing: isNA ? 0 : 1.5,
-                            fontFamily: isNA ? null : 'monospace',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (!isNA)
-                    GestureDetector(
-                      onTap: () => _copyValue(title, idNumber),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: color.withOpacity(0.10),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(Icons.copy_rounded, size: 18, color: color),
                       ),
-                    ),
-                ],
-              ),
+                    ],
+                  ),
+                ),
+                // Card body
+                Container(
+                  color: _cardColor,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Semantics(
+                              label: 'ID Number',
+                              child: Text(
+                                'ID NUMBER',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: _gray400,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Semantics(
+                              label: isNA ? 'Not Available' : idNumber,
+                              value: isNA ? 'Not Available' : idNumber,
+                              child: Text(
+                                isNA ? 'Not Available' : idNumber,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: isNA ? _gray400 : _primary,
+                                  letterSpacing: isNA ? 0 : 1.5,
+                                  fontFamily: isNA ? null : 'monospace',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (!isNA)
+                        GestureDetector(
+                          onTap: () => _copyValue(title, idNumber),
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.10),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              Icons.copy_rounded,
+                              size: 18,
+                              color: color,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -429,6 +728,8 @@ class _ProfilePageState extends State<ProfilePage>
     if (employeeData == null) return const SizedBox();
     final isActive = employeeData!['is_active'] == 1;
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      primary: false,
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 30),
       child: Column(
         children: [
@@ -607,6 +908,8 @@ class _ProfilePageState extends State<ProfilePage>
   Widget _buildPersonalTab() {
     if (employeeData == null) return const SizedBox();
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      primary: false,
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 30),
       child: Column(
         children: [
@@ -700,6 +1003,8 @@ class _ProfilePageState extends State<ProfilePage>
   Widget _buildAddressTab() {
     if (employeeData == null) return const SizedBox();
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      primary: false,
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 30),
       child: Column(
         children: [
@@ -745,6 +1050,8 @@ class _ProfilePageState extends State<ProfilePage>
   Widget _buildDocumentsTab() {
     if (employeeData == null) return const SizedBox();
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      primary: false,
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 30),
       child: Column(
         children: [
@@ -888,6 +1195,8 @@ class _ProfilePageState extends State<ProfilePage>
     final emp = employeeData!;
 
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      primary: false,
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 30),
       child: Column(
         children: [
@@ -993,104 +1302,122 @@ class _ProfilePageState extends State<ProfilePage>
       backgroundColor: _bg,
       body: isLoading
           ? const Center(child: CircularProgressIndicator(color: _accent))
-          : NestedScrollView(
-              headerSliverBuilder: (context, innerBoxIsScrolled) => [
-                // ── Sliver App Bar ─────────────────────────────────────────
-                SliverAppBar(
-                  pinned: true,
-                  backgroundColor: _primary,
-                  expandedHeight: 200,
-                  systemOverlayStyle: const SystemUiOverlayStyle(
-                    statusBarColor: Colors.transparent,
-                    statusBarIconBrightness: Brightness.light,
-                    statusBarBrightness: Brightness.dark,
-                  ),
-                  leading: IconButton(
-                    icon: Container(
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: const Icon(
-                        Icons.arrow_back_ios_new_rounded,
-                        size: 15,
-                        color: Colors.white,
-                      ),
+          : ElectricRefreshIndicator(
+              onRefresh: _loadEmployeeData,
+              color: _accent,
+              backgroundColor: _cardColor,
+              child: NestedScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                  // ── Sliver App Bar ─────────────────────────────────────────
+                  SliverAppBar(
+                    pinned: true,
+                    backgroundColor: _primary,
+                    expandedHeight: 200,
+                    systemOverlayStyle: const SystemUiOverlayStyle(
+                      statusBarColor: Colors.transparent,
+                      statusBarIconBrightness: Brightness.light,
+                      statusBarBrightness: Brightness.dark,
                     ),
-                    onPressed: () => Get.back(),
-                  ),
-                  title: AnimatedOpacity(
-                    opacity: innerBoxIsScrolled ? 1 : 0,
-                    duration: const Duration(milliseconds: 200),
-                    child: Text(
-                      fullName,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  flexibleSpace: FlexibleSpaceBar(
-                    collapseMode: CollapseMode.pin,
-                    background: Container(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF000000), Color(0xFF1A1A1A)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
+                    leading: IconButton(
+                      icon: Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: const Icon(
+                          Icons.arrow_back_ios_new_rounded,
+                          size: 15,
+                          color: Colors.white,
                         ),
                       ),
-                      padding: const EdgeInsets.fromLTRB(20, 70, 20, 16),
-                      child: Row(
-                        children: [
-                          // Avatar
-                          GestureDetector(
-                            onTap: () {
-                              if (pfp != null && pfp.isNotEmpty) {
-                                Get.to(
-                                  () => Scaffold(
-                                    backgroundColor: Colors.black,
-                                    appBar: AppBar(
+                      onPressed: () => Get.back(),
+                    ),
+                    title: AnimatedOpacity(
+                      opacity: innerBoxIsScrolled ? 1 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Text(
+                        fullName,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    flexibleSpace: FlexibleSpaceBar(
+                      collapseMode: CollapseMode.pin,
+                      background: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF000000), Color(0xFF1A1A1A)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(20, 70, 20, 16),
+                        child: Row(
+                          children: [
+                            // Avatar
+                            GestureDetector(
+                              onTap: () {
+                                if (pfp != null && pfp.isNotEmpty) {
+                                  Get.to(
+                                    () => Scaffold(
                                       backgroundColor: Colors.black,
-                                      iconTheme: const IconThemeData(
-                                        color: Colors.white,
+                                      appBar: AppBar(
+                                        backgroundColor: Colors.black,
+                                        iconTheme: const IconThemeData(
+                                          color: Colors.white,
+                                        ),
                                       ),
-                                    ),
-                                    body: Center(
-                                      child: InteractiveViewer(
-                                        child: CachedNetworkImage(
-                                          imageUrl: '${ApiService.baseUrl}$pfp',
-                                          fit: BoxFit.contain,
+                                      body: Center(
+                                        child: InteractiveViewer(
+                                          child: CachedNetworkImage(
+                                            imageUrl:
+                                                '${ApiService.baseUrl}$pfp',
+                                            fit: BoxFit.contain,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                );
-                              }
-                            },
-                            child: Stack(
-                              children: [
-                                Container(
-                                  width: 76,
-                                  height: 76,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white.withOpacity(0.12),
-                                    border: Border.all(
-                                      color: Colors.white.withOpacity(0.35),
-                                      width: 2.5,
+                                  );
+                                }
+                              },
+                              child: Stack(
+                                children: [
+                                  Container(
+                                    width: 76,
+                                    height: 76,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.white.withOpacity(0.12),
+                                      border: Border.all(
+                                        color: Colors.white.withOpacity(0.35),
+                                        width: 2.5,
+                                      ),
                                     ),
-                                  ),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: pfp != null && pfp.isNotEmpty
-                                      ? CachedNetworkImage(
-                                          imageUrl: '${ApiService.baseUrl}$pfp',
-                                          fit: BoxFit.cover,
-                                          memCacheWidth: 152,
-                                          memCacheHeight: 152,
-                                          placeholder: (_, __) => Center(
+                                    clipBehavior: Clip.antiAlias,
+                                    child: pfp != null && pfp.isNotEmpty
+                                        ? CachedNetworkImage(
+                                            imageUrl:
+                                                '${ApiService.baseUrl}$pfp',
+                                            fit: BoxFit.cover,
+                                            memCacheWidth: 152,
+                                            memCacheHeight: 152,
+                                            placeholder: (_, __) => Center(
+                                              child: Text(
+                                                initial,
+                                                style: const TextStyle(
+                                                  fontSize: 30,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        : Center(
                                             child: Text(
                                               initial,
                                               style: const TextStyle(
@@ -1100,143 +1427,135 @@ class _ProfilePageState extends State<ProfilePage>
                                               ),
                                             ),
                                           ),
-                                        )
-                                      : Center(
-                                          child: Text(
-                                            initial,
-                                            style: const TextStyle(
-                                              fontSize: 30,
-                                              fontWeight: FontWeight.w800,
-                                              color: Colors.white,
+                                  ),
+                                  Positioned(
+                                    bottom: 2,
+                                    right: 2,
+                                    child: Container(
+                                      width: 14,
+                                      height: 14,
+                                      decoration: BoxDecoration(
+                                        color: isActive ? _success : _danger,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: const Color(0xFF1A2340),
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    fullName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    employeeData?['designation']?.toString() ??
+                                        '',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.white.withOpacity(0.75),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.business_outlined,
+                                        size: 12,
+                                        color: Colors.white.withOpacity(0.60),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          employeeData?['department']
+                                                  ?.toString() ??
+                                              '',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.white.withOpacity(
+                                              0.60,
                                             ),
                                           ),
                                         ),
-                                ),
-                                Positioned(
-                                  bottom: 2,
-                                  right: 2,
-                                  child: Container(
-                                    width: 14,
-                                    height: 14,
-                                    decoration: BoxDecoration(
-                                      color: isActive ? _success : _danger,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: const Color(0xFF1A2340),
-                                        width: 2,
                                       ),
-                                    ),
+                                    ],
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(height: 8),
+                                  _statusBadge(
+                                    isActive ? 'Active Employee' : 'Inactive',
+                                    isActive,
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  fullName,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  employeeData?['designation']?.toString() ??
-                                      '',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.white.withOpacity(0.75),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.business_outlined,
-                                      size: 12,
-                                      color: Colors.white.withOpacity(0.60),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Flexible(
-                                      child: Text(
-                                        employeeData?['department']
-                                                ?.toString() ??
-                                            '',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.white.withOpacity(0.60),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                _statusBadge(
-                                  isActive ? 'Active Employee' : 'Inactive',
-                                  isActive,
-                                ),
-                              ],
-                            ),
-                          ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // ── Tab Bar ────────────────────────────────────────────────
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _StickyTabBarDelegate(
+                      TabBar(
+                        controller: _tabController,
+                        labelColor: _accent,
+                        unselectedLabelColor: _gray400,
+                        indicatorColor: _accent,
+                        indicatorWeight: 2.5,
+                        isScrollable: true,
+                        tabAlignment: TabAlignment.start,
+                        labelStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                        ),
+                        unselectedLabelStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
+                        tabs: const [
+                          Tab(text: 'OVERVIEW'),
+                          Tab(text: 'PERSONAL'),
+                          Tab(text: 'ADDRESS'),
+                          Tab(text: 'DOCUMENTS'),
+                          Tab(text: 'ID PROOFS'),
                         ],
                       ),
                     ),
                   ),
-                ),
-
-                // ── Tab Bar ────────────────────────────────────────────────
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: _StickyTabBarDelegate(
-                    TabBar(
-                      controller: _tabController,
-                      labelColor: _accent,
-                      unselectedLabelColor: _gray400,
-                      indicatorColor: _accent,
-                      indicatorWeight: 2.5,
-                      isScrollable: true,
-                      tabAlignment: TabAlignment.start,
-                      labelStyle: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.5,
-                      ),
-                      unselectedLabelStyle: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                      ),
-                      tabs: const [
-                        Tab(text: 'OVERVIEW'),
-                        Tab(text: 'PERSONAL'),
-                        Tab(text: 'ADDRESS'),
-                        Tab(text: 'DOCUMENTS'),
-                        Tab(text: 'ID PROOFS'),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-              body: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildOverviewTab(),
-                  _buildPersonalTab(),
-                  _buildAddressTab(),
-                  _buildDocumentsTab(),
-                  _buildIDProofsTab(),
                 ],
+                body: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildOverviewTab(),
+                    _buildPersonalTab(),
+                    _buildAddressTab(),
+                    _buildDocumentsTab(),
+                    _buildIDProofsTab(),
+                  ],
+                ),
               ),
             ),
     );

@@ -4,6 +4,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/api_service.dart';
+import '../widgets/electric_refresh_indicator.dart';
 
 class LeaderboardPage extends StatefulWidget {
   const LeaderboardPage({Key? key}) : super(key: key);
@@ -41,7 +42,7 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
     try {
       final userData = storage.read('user');
       final userId = userData != null ? userData['id'] : null;
-      
+
       final result = await ApiService.getLeaderboard(
         userId: userId,
         month: selectedMonth,
@@ -90,7 +91,11 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
           ),
         ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: _pureBlack, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios_new,
+            color: _pureBlack,
+            size: 20,
+          ),
           onPressed: () => Get.back(),
         ),
         actions: [
@@ -100,37 +105,51 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
           ),
         ],
       ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator(color: _pureBlack))
-          : top10.isEmpty
-              ? _buildEmptyState()
-              : Stack(
-                  children: [
-                    CustomScrollView(
-                      physics: const BouncingScrollPhysics(),
-                      slivers: [
-                        SliverToBoxAdapter(
-                          child: _buildPodium(),
+      body: ElectricRefreshIndicator(
+        onRefresh: _loadLeaderboard,
+        color: _charcoal,
+        backgroundColor: _pureWhite,
+        child: isLoading
+            ? ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 220),
+                  Center(child: CircularProgressIndicator(color: _pureBlack)),
+                ],
+              )
+            : top10.isEmpty
+            ? ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [_buildEmptyState()],
+              )
+            : Stack(
+                children: [
+                  CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverToBoxAdapter(child: _buildPodium()),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate((
+                            context,
+                            index,
+                          ) {
+                            // Skip first 3 as they are in podium
+                            if (index < 3) {
+                              return const SizedBox.shrink();
+                            }
+                            final emp = top10[index];
+                            return _buildListTile(emp, index + 1);
+                          }, childCount: top10.length),
                         ),
-                        SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                          sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                // Skip first 3 as they are in podium
-                                if (index < 3) return const SizedBox.shrink();
-                                final emp = top10[index];
-                                return _buildListTile(emp, index + 1);
-                              },
-                              childCount: top10.length,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (userRank != null) _buildUserRankBar(),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
+                  if (userRank != null) _buildUserRankBar(),
+                ],
+              ),
+      ),
     );
   }
 
@@ -228,7 +247,10 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: color,
                   borderRadius: BorderRadius.circular(12),
@@ -360,10 +382,7 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
                 if (designation.isNotEmpty)
                   Text(
                     designation,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: _mediumGray,
-                    ),
+                    style: const TextStyle(fontSize: 12, color: _mediumGray),
                   ),
               ],
             ),
@@ -396,7 +415,8 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
 
   Widget _buildUserRankBar() {
     final rank = userRank!['rank'];
-    final ot = int.tryParse((userRank!['total_ot_minutes'] ?? 0).toString()) ?? 0;
+    final ot =
+        int.tryParse((userRank!['total_ot_minutes'] ?? 0).toString()) ?? 0;
 
     return Positioned(
       bottom: 24,
@@ -442,11 +462,7 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
               ],
             ),
             const Spacer(),
-            Container(
-              height: 40,
-              width: 1,
-              color: _pureWhite.withOpacity(0.1),
-            ),
+            Container(height: 40, width: 1, color: _pureWhite.withOpacity(0.1)),
             const Spacer(),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,

@@ -8,11 +8,13 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/api_service.dart';
+import '../widgets/electric_refresh_indicator.dart';
 import '../services/location_service.dart';
 import 'employee_selection_page.dart';
 import 'camera_page.dart';
 import 'settings_page.dart';
 import 'daily_attendance_page.dart';
+import '../widgets/electric_refresh_indicator.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -816,6 +818,25 @@ class _HomePageState extends State<HomePage>
                 ),
                 ListTile(
                   leading: const Icon(
+                    Icons.event_note_outlined,
+                    color: _charcoal,
+                    size: 24,
+                  ),
+                  title: const Text(
+                    'My Leave',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: _charcoal,
+                    ),
+                  ),
+                  onTap: () {
+                    Get.back();
+                    Get.toNamed('/leave');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
                     Icons.leaderboard_outlined,
                     color: _charcoal,
                     size: 24,
@@ -833,6 +854,26 @@ class _HomePageState extends State<HomePage>
                     Get.toNamed('/leaderboard');
                   },
                 ),
+                if (userData['driver_access'] == 'yes')
+                  ListTile(
+                    leading: const Icon(
+                      Icons.directions_car_outlined,
+                      color: _charcoal,
+                      size: 24,
+                    ),
+                    title: const Text(
+                      'Vehicle & Fuel',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _charcoal,
+                      ),
+                    ),
+                    onTap: () {
+                      Get.back();
+                      Get.toNamed('/vehicle');
+                    },
+                  ),
                 ListTile(
                   leading: const Icon(
                     Icons.settings_outlined,
@@ -897,8 +938,8 @@ class _HomePageState extends State<HomePage>
     final role = (userData['role'] ?? 'Single User').toString();
     final hasCheckedIn = todaysRecords.isNotEmpty;
     final hasCheckedOut = todaysRecords.length >= 2;
-    final firstIn = hasCheckedIn ? todaysRecords.last['time'] : null;
-    final lastOut = hasCheckedOut ? todaysRecords.first['time'] : null;
+    final firstIn = hasCheckedIn ? todaysRecords.first['time'] : null;
+    final lastOut = hasCheckedOut ? todaysRecords.last['time'] : null;
 
     return WillPopScope(
       onWillPop: () async {
@@ -913,7 +954,7 @@ class _HomePageState extends State<HomePage>
         drawer: _buildDrawer(userData),
         body: Stack(
           children: [
-            RefreshIndicator(
+            ElectricRefreshIndicator(
               onRefresh: () async {
                 await Future.wait([
                   _loadTodayAttendance(),
@@ -1033,7 +1074,19 @@ class _HomePageState extends State<HomePage>
                                     ),
                                   ),
                                 ),
-                                const Expanded(child: SizedBox()),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Container(
+                                    height: 140,
+                                    child: _buildActionCard(
+                                      icon: Icons.directions_car_outlined,
+                                      label: 'Vehicle Reports',
+                                      sublabel: 'Trips & Fuel logs',
+                                      onTap: () =>
+                                          Get.toNamed('/fleet-reports'),
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ],
@@ -1921,6 +1974,23 @@ class _HomePageState extends State<HomePage>
                   ),
                   child: Row(
                     children: [
+                      if (todaysRecords.isNotEmpty && todaysRecords.any((r) => r['is_overnight'] == 1 || r['date'] != DateFormat('yyyy-MM-dd').format(DateTime.now())))
+                        Container(
+                          margin: const EdgeInsets.only(right: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: _softRed.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'OVERNIGHT',
+                            style: TextStyle(
+                              fontSize: 8,
+                              fontWeight: FontWeight.bold,
+                              color: _softRed,
+                            ),
+                          ),
+                        ),
                       Container(
                         width: 6,
                         height: 6,
@@ -2136,8 +2206,9 @@ class _HomePageState extends State<HomePage>
       if (firstIn != null) {
         try {
           final now = DateTime.now();
-          final String todayDate = DateFormat('yyyy-MM-dd').format(now);
-          final inTime = DateTime.parse('$todayDate $firstIn');
+// Handle the timer logic using the record's actual date
+          final recordDate = todaysRecords.last['date'];
+          final inTime = DateTime.parse('$recordDate $firstIn');
           final int elapsedSeconds = now.difference(inTime).inSeconds;
           final int remainingSeconds = 300 - elapsedSeconds;
 
@@ -3356,6 +3427,7 @@ class _HomePageState extends State<HomePage>
       if (result['success'] == true) {
         final bool isOut = result['isOut'] ?? false;
         await _loadTodayAttendance();
+        await _loadMonthlyAttendance();
         await _loadMonthlyPerformance(updateUI: !isOut);
 
         if (isOut) {
@@ -3512,56 +3584,110 @@ class _HomePageState extends State<HomePage>
                       ),
                       const SizedBox(height: 16),
                       Flexible(
-                        child: filteredSites.isEmpty
-                            ? const Padding(
-                                padding: EdgeInsets.all(24.0),
-                                child: Text(
-                                  'No sites found',
-                                  style: TextStyle(color: _mediumGray),
-                                ),
-                              )
-                            : ListView.separated(
-                                shrinkWrap: true,
-                                itemCount: filteredSites.length,
-                                separatorBuilder: (_, __) =>
-                                    const Divider(color: _lightGray),
-                                itemBuilder: (ctx, i) {
-                                  final s = filteredSites[i];
-                                  return ListTile(
-                                    leading: const Icon(
-                                      Icons.location_on_outlined,
-                                      color: _softRed,
+                        child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: filteredSites.isEmpty ? 1 : filteredSites.length + 1,
+                            separatorBuilder: (_, __) =>
+                                const Divider(color: _lightGray),
+                            itemBuilder: (ctx, i) {
+                              // "Others" tile — always shown as the last item
+                              if (filteredSites.isEmpty || i == filteredSites.length) {
+                                return ListTile(
+                                  leading: const Icon(
+                                    Icons.edit_location_alt_outlined,
+                                    color: _charcoal,
+                                  ),
+                                  title: const Text(
+                                    'Others',
+                                    style: TextStyle(
+                                      color: _charcoal,
+                                      fontWeight: FontWeight.w500,
+                                      fontStyle: FontStyle.italic,
                                     ),
-                                    title: Text(
-                                      s['site_name'],
-                                      style: const TextStyle(
-                                        color: _charcoal,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    trailing: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: _charcoal.withOpacity(0.05),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        'ID: ${s['site_id'] ?? ''}',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: _charcoal,
-                                          fontWeight: FontWeight.w600,
+                                  ),
+                                  subtitle: const Text(
+                                    'Specify a custom site',
+                                    style: TextStyle(fontSize: 11, color: _mediumGray),
+                                  ),
+                                  onTap: () async {
+                                    final otherCtrl = TextEditingController();
+                                    final typed = await showDialog<String>(
+                                      context: ctx,
+                                      barrierDismissible: false,
+                                      builder: (dCtx) => AlertDialog(
+                                        title: const Text('Specify Site'),
+                                        content: TextField(
+                                          controller: otherCtrl,
+                                          autofocus: true,
+                                          textCapitalization: TextCapitalization.words,
+                                          decoration: const InputDecoration(
+                                            hintText: 'Enter site name',
+                                            border: OutlineInputBorder(),
+                                          ),
                                         ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(dCtx),
+                                            child: const Text('Cancel'),
+                                          ),
+                                          ElevatedButton(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: _charcoal,
+                                              foregroundColor: _pureWhite,
+                                            ),
+                                            onPressed: () {
+                                              final val = otherCtrl.text.trim();
+                                              if (val.isNotEmpty) {
+                                                Navigator.pop(dCtx, val);
+                                              }
+                                            },
+                                            child: const Text('Confirm'),
+                                          ),
+                                        ],
                                       ),
+                                    );
+                                    if (typed != null && typed.isNotEmpty) {
+                                      Navigator.pop(ctx, '(others)-$typed');
+                                    }
+                                  },
+                                );
+                              }
+                              final s = filteredSites[i];
+                              return ListTile(
+                                leading: const Icon(
+                                  Icons.location_on_outlined,
+                                  color: _softRed,
+                                ),
+                                title: Text(
+                                  s['site_name'],
+                                  style: const TextStyle(
+                                    color: _charcoal,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                trailing: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _charcoal.withOpacity(0.05),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    'ID: ${s['site_id'] ?? ''}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: _charcoal,
+                                      fontWeight: FontWeight.w600,
                                     ),
-                                    onTap: () =>
-                                        Navigator.pop(ctx, s['site_name']),
-                                  );
-                                },
-                              ),
+                                  ),
+                                ),
+                                onTap: () =>
+                                    Navigator.pop(ctx, s['site_name']),
+                              );
+                            },
+                          ),
                       ),
                     ],
                   ),
@@ -3582,6 +3708,7 @@ class _HomePageState extends State<HomePage>
         if (result != null && result is Map && result['success'] == true) {
           final bool isOut = result['isOut'] ?? false;
           await _loadTodayAttendance();
+          await _loadMonthlyAttendance();
           await _loadMonthlyPerformance(updateUI: !isOut);
 
           if (isOut) {
@@ -3662,6 +3789,7 @@ class _HomePageState extends State<HomePage>
 
         // Show success msg on top of the next page
         await _loadTodayAttendance();
+        await _loadMonthlyAttendance();
         await _loadMonthlyPerformance(updateUI: !isOut);
 
         if (isOut) {
@@ -3740,6 +3868,7 @@ class _HomePageState extends State<HomePage>
           isSuccess: true,
         );
         await _loadTodayAttendance();
+        await _loadMonthlyAttendance();
         await _loadMonthlyPerformance(updateUI: !isOut);
 
         // Only trigger streak animation on check-out
@@ -3914,6 +4043,7 @@ class _HomePageState extends State<HomePage>
             msg.toLowerCase().contains('check-out') ||
             msg.toLowerCase().contains('checkout');
         await _loadTodayAttendance();
+        await _loadMonthlyAttendance();
         await _loadMonthlyPerformance(updateUI: !isOut);
 
         // Only trigger streak animation on check-out

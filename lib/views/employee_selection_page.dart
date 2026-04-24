@@ -263,56 +263,110 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
                     ),
                     const SizedBox(height: 16),
                     Flexible(
-                      child: filteredSites.isEmpty
-                          ? Padding(
-                              padding: const EdgeInsets.all(24.0),
-                              child: Text(
-                                'No sites found',
-                                style: TextStyle(color: _textSecond),
-                              ),
-                            )
-                          : ListView.separated(
-                              shrinkWrap: true,
-                              itemCount: filteredSites.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(color: _border),
-                              itemBuilder: (ctx, i) {
-                                final s = filteredSites[i];
-                                return ListTile(
-                                  leading: const Icon(
-                                    Icons.location_on_outlined,
-                                    color: _red,
+                      child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: filteredSites.isEmpty ? 1 : filteredSites.length + 1,
+                          separatorBuilder: (_, __) =>
+                              const Divider(color: _border),
+                          itemBuilder: (ctx, i) {
+                            // "Others" tile — always shown as the last item
+                            if (filteredSites.isEmpty || i == filteredSites.length) {
+                              return ListTile(
+                                leading: const Icon(
+                                  Icons.edit_location_alt_outlined,
+                                  color: _textPrimary,
+                                ),
+                                title: const Text(
+                                  'Others',
+                                  style: TextStyle(
+                                    color: _textPrimary,
+                                    fontWeight: FontWeight.w500,
+                                    fontStyle: FontStyle.italic,
                                   ),
-                                  title: Text(
-                                    s['site_name'],
-                                    style: const TextStyle(
-                                      color: _textPrimary,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  trailing: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: _textPrimary.withOpacity(0.05),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      'ID: ${s['site_id'] ?? ''}',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: _textPrimary,
-                                        fontWeight: FontWeight.w600,
+                                ),
+                                subtitle: const Text(
+                                  'Specify a custom site',
+                                  style: TextStyle(fontSize: 11, color: _textSecond),
+                                ),
+                                onTap: () async {
+                                  final otherCtrl = TextEditingController();
+                                  final typed = await showDialog<String>(
+                                    context: ctx,
+                                    barrierDismissible: false,
+                                    builder: (dCtx) => AlertDialog(
+                                      title: const Text('Specify Site'),
+                                      content: TextField(
+                                        controller: otherCtrl,
+                                        autofocus: true,
+                                        textCapitalization: TextCapitalization.words,
+                                        decoration: const InputDecoration(
+                                          hintText: 'Enter site name',
+                                          border: OutlineInputBorder(),
+                                        ),
                                       ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(dCtx),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: _textPrimary,
+                                            foregroundColor: _card,
+                                          ),
+                                          onPressed: () {
+                                            final val = otherCtrl.text.trim();
+                                            if (val.isNotEmpty) {
+                                              Navigator.pop(dCtx, val);
+                                            }
+                                          },
+                                          child: const Text('Confirm'),
+                                        ),
+                                      ],
                                     ),
+                                  );
+                                  if (typed != null && typed.isNotEmpty) {
+                                    Navigator.pop(ctx, '(others)-$typed');
+                                  }
+                                },
+                              );
+                            }
+                            final s = filteredSites[i];
+                            return ListTile(
+                              leading: const Icon(
+                                Icons.location_on_outlined,
+                                color: _red,
+                              ),
+                              title: Text(
+                                s['site_name'],
+                                style: const TextStyle(
+                                  color: _textPrimary,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              trailing: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _textPrimary.withOpacity(0.05),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  'ID: ${s['site_id'] ?? ''}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: _textPrimary,
+                                    fontWeight: FontWeight.w600,
                                   ),
-                                  onTap: () =>
-                                      Navigator.pop(ctx, s['site_name']),
-                                );
-                              },
-                            ),
+                                ),
+                              ),
+                              onTap: () =>
+                                  Navigator.pop(ctx, s['site_name']),
+                            );
+                          },
+                        ),
                     ),
                   ],
                 ),
