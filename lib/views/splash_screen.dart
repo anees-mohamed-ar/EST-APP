@@ -4,6 +4,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import '../services/location_service.dart';
+import '../services/api_service.dart';
+import '../constants/app_config.dart';
 
 class SplashScreen extends StatefulWidget {
   @override
@@ -15,15 +17,6 @@ class _SplashScreenState extends State<SplashScreen>
   /// Tracks whether we are currently waiting for the user to return
   /// from the system Settings screen (after tapping "Turn On").
   bool _waitingForLocationSettings = false;
-
-  /// Tracks whether we are waiting for user to acknowledge trial warning
-  bool _waitingForTrialWarning = false;
-
-  /// Tracks whether trial warning has been acknowledged
-  bool _trialWarningAcknowledged = false;
-
-  /// Tracks whether trial has expired (to stop all processing)
-  bool _trialExpired = false;
 
   @override
   void initState() {
@@ -82,22 +75,6 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkRequirements() async {
-    // 0. Check Trial Period first
-    await _checkTrialPeriod();
-
-    // If trial expired, stop all processing completely
-    if (_trialExpired) {
-      print(
-        '🚫 Trial expired - stopping all requirements processing completely',
-      );
-      return;
-    }
-
-    // If we're waiting for trial warning acknowledgment, don't continue
-    if (_waitingForTrialWarning) {
-      return;
-    }
-
     // 1. Check Internet — retry up to 3× to avoid false negatives after
     //    returning from the Location Settings screen.
     final bool hasConnection = await _hasRealInternetConnection();
@@ -111,6 +88,20 @@ class _SplashScreenState extends State<SplashScreen>
       return;
     }
 
+    // 1b. Check App Version
+    try {
+      final versionData = await ApiService.checkVersion(AppConfig.appVersion);
+      if (versionData['allowed'] == false) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showUpdateDialog(versionData['message'] ?? 'Please update your app.');
+        });
+        return;
+      }
+    } catch (e) {
+      print('⚠️ Version check error: $e');
+      // Continue anyway on error to prevent blocking the user
+    }
+
     // 2. Check Location Services
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -121,11 +112,6 @@ class _SplashScreenState extends State<SplashScreen>
     // 3. Routing — short delay for a smooth splash visual
     await Future.delayed(const Duration(milliseconds: 800));
 
-    // Double-check trial status before routing (extra safety)
-    if (_trialExpired) {
-      print('🚫 Double-check: Trial still expired - not routing');
-      return;
-    }
 
     final storage = GetStorage();
     final userData = storage.read('user');
@@ -207,6 +193,43 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
+  void _showUpdateDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => WillPopScope(
+        onWillPop: () async => false,
+        child: AlertDialog(
+          title: const Text(
+            '⚠️ Update Required',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'You are using a  Old version',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Contact Your Admin For new App',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -276,143 +299,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkTrialPeriod() async {
-    // If warning was already acknowledged, skip trial check
-    if (_trialWarningAcknowledged) {
-      print('✅ Trial warning already acknowledged - skipping check');
-      return;
-    }
-
-    final DateTime currentDate = DateTime.now();
-    final DateTime trialEndDate = DateTime(2026, 5, 30); // May 1, 2026 (Last day is April 30)
-    final DateTime warningDate = DateTime(2026, 4, 29); // April 29, 2026
-
-    // Create date-only comparisons (ignore time)
-    final DateTime currentDateOnly = DateTime(
-      currentDate.year,
-      currentDate.month,
-      currentDate.day,
-    );
-    final DateTime warningDateOnly = DateTime(
-      warningDate.year,
-      warningDate.month,
-      warningDate.day,
-    );
-    final DateTime trialEndDateOnly = DateTime(
-      trialEndDate.year,
-      trialEndDate.month,
-      trialEndDate.day,
-    );
-
-    // Debug logging
-    print('🔍 Trial Period Check:');
-    print('   Current Date: $currentDate');
-    print('   Current Date Only: $currentDateOnly');
-    print('   Warning Date: $warningDate');
-    print('   Warning Date Only: $warningDateOnly');
-    print('   Trial End Date: $trialEndDate');
-    print('   Trial End Date Only: $trialEndDateOnly');
-    print(
-      '   Is Warning Day: ${currentDateOnly.isAtSameMomentAs(warningDateOnly)}',
-    );
-    print(
-      '   Is Expired: ${currentDateOnly.isAfter(trialEndDateOnly) || currentDateOnly.isAtSameMomentAs(trialEndDateOnly)}',
-    );
-
-    // Check if trial has expired (April 15, 2026 or later)
-    if (currentDateOnly.isAfter(trialEndDateOnly) ||
-        currentDateOnly.isAtSameMomentAs(trialEndDateOnly)) {
-      // Trial expired - set flag and show expired screen
-      print(
-        '🚫 Trial expired - setting expired flag and showing expired screen',
-      );
-      _trialExpired = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Get.offAll(() => const TrialExpiredScreen());
-      });
-      return;
-    }
-
-    // Check if today is April 14, 2026 (warning day)
-    if (currentDateOnly.isAtSameMomentAs(warningDateOnly)) {
-      // Set flag to pause normal flow
-      print('⚠️ Warning day detected - showing warning dialog');
-      _waitingForTrialWarning = true;
-
-      // Show warning dialog after build phase
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Get.dialog(
-          WillPopScope(
-            child: AlertDialog(
-              title: const Text(
-                '⚠️ Trial Version Warning',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red,
-                ),
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Your trial version will expire after April 30, 2026.',
-                    style: TextStyle(fontSize: 16),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Contact iMatrix Technologies Pvt Ltd for the full version to continue using the app.',
-                    style: TextStyle(fontSize: 14),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red.withOpacity(0.3)),
-                    ),
-                    child: const Text(
-                      '📞 Contact: 9500625633\n📧 Email: development@imatrixtechnologies.com',
-                      style: TextStyle(fontSize: 12),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Get.back();
-                    setState(() {
-                      _waitingForTrialWarning = false;
-                      _trialWarningAcknowledged = true;
-                    });
-                    // Continue with normal flow after user acknowledges
-                    _continueNormalFlow();
-                  },
-                  child: const Text(
-                    'OK, I Understand',
-                    style: TextStyle(color: Colors.red),
-                  ),
-                ),
-              ],
-            ),
-            onWillPop: () async => false,
-          ),
-          barrierDismissible: false,
-        );
-      });
-      return;
-    }
-
-    print('✅ Normal day - continuing with normal flow');
-  }
-
-  Future<void> _continueNormalFlow() async {
-    // Continue with the rest of the requirements check
-    await _checkRequirements();
+    // Logic removed - handled by version check now
   }
 }
 

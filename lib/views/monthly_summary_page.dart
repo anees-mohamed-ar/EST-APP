@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import '../services/api_service.dart';
@@ -45,28 +47,28 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
   static const Color _softGreen = Color(0xFF2E7D32);
   static const Color _softRed = Color(0xFFC62828);
 
+  int _tab = 0; // 0=Summary, 1=Daily
+
   @override
   void initState() {
     super.initState();
     _loadMonthlyData();
   }
 
-  @override
-  void dispose() {
-    super.dispose();
+  void _setTab(int i) {
+    HapticFeedback.selectionClick();
+    setState(() => _tab = i);
   }
 
   Future<void> _loadMonthlyData() async {
     setState(() => isLoading = true);
     try {
       final userId = widget.userId ?? storage.read('user')['id'];
-      final startDate = widget.dateRange?.start;
-      final endDate = widget.dateRange?.end;
+      final startDate = _startDate ?? widget.dateRange?.start;
+      final endDate = _endDate ?? widget.dateRange?.end;
 
-      // Use payroll API for more detailed data
-      // Default to current month if no custom range is selected
       final now = DateTime.now();
-      final yearMonth = startDate != null && endDate != null
+      final yearMonth = startDate != null
           ? '${startDate.year}-${startDate.month.toString().padLeft(2, '0')}'
           : '${now.year}-${now.month.toString().padLeft(2, '0')}';
 
@@ -75,7 +77,6 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
         yearMonth: yearMonth,
       );
 
-      // Also fetch daily breakdown for detailed view
       final dailyData = await ApiService.getDailyBreakdown(
         userId,
         yearMonth: yearMonth,
@@ -87,7 +88,7 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
         });
       }
     } catch (e) {
-      // Handle error silently
+      debugPrint('Error loading monthly data: $e');
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -128,84 +129,107 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _offWhite,
-      body: Stack(
-        children: [
-          ElectricRefreshIndicator(
-            onRefresh: _loadMonthlyData,
-            color: _charcoal,
-            backgroundColor: _pureWhite,
-            child: CustomScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                SliverAppBar(
-                  expandedHeight: 0,
-                  floating: true,
-                  pinned: true,
-                  automaticallyImplyLeading: false,
-                  backgroundColor: _offWhite,
-                  elevation: 0,
-                  title: Row(
-                    children: [
-                      GestureDetector(
-                        onTap: () => Get.back(),
-                        child: Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: _charcoal.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(
-                            Icons.arrow_back_outlined,
-                            size: 20,
-                            color: _charcoal,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        widget.userName != null
-                            ? '${widget.userName}\'s Summary'
-                            : 'Monthly Summary',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w500,
-                          color: _charcoal,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (isLoading)
-                          const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(40),
-                              child: CircularProgressIndicator(
-                                color: _charcoal,
-                              ),
-                            ),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.dark,
+      child: Scaffold(
+        backgroundColor: _offWhite,
+        body: Stack(
+          children: [
+            Column(
+              children: [
+                _buildAppBar(),
+                Expanded(
+                  child: ElectricRefreshIndicator(
+                    onRefresh: _loadMonthlyData,
+                    child: isLoading
+                        ? const Center(
+                            child: CircularProgressIndicator(color: _charcoal),
                           )
-                        else if (monthlyData != null)
-                          _buildMonthlySummaryContent()
-                        else
-                          _buildErrorContent(),
-
-                        const SizedBox(height: 32),
-                      ],
-                    ),
+                        : monthlyData == null
+                            ? _buildErrorContent()
+                            : IndexedStack(
+                                index: _tab,
+                                children: [
+                                  _buildSummaryTab(),
+                                  _buildDailyTab(),
+                                ],
+                              ),
                   ),
                 ),
               ],
+            ),
+            // Floating dock navigation
+            Positioned(
+              bottom: MediaQuery.of(context).padding.bottom + 16,
+              left: 24,
+              right: 24,
+              child: _buildDock(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAppBar() {
+    return Container(
+      color: _pureWhite,
+      padding: EdgeInsets.only(
+        top: MediaQuery.of(context).padding.top + 12,
+        bottom: 16,
+        left: 20,
+        right: 20,
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => Get.back(),
+            child: Container(
+              padding: const EdgeInsets.all(9),
+              decoration: BoxDecoration(
+                color: _lightGray.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: const Icon(Icons.arrow_back_ios_new_rounded,
+                  color: _charcoal, size: 16),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.userName != null
+                    ? '${widget.userName}\'s Summary'
+                    : 'Monthly Summary',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _charcoal,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              Text(
+                _tab == 0 ? 'Performance & Stats' : 'Day-by-day Breakdown',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: _mediumGray,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: _loadMonthlyData,
+            child: Container(
+              padding: const EdgeInsets.all(9),
+              decoration: BoxDecoration(
+                color: _lightGray.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: const Icon(Icons.refresh_rounded,
+                  color: _charcoal, size: 18),
             ),
           ),
         ],
@@ -213,838 +237,552 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
     );
   }
 
-  Widget _buildMonthlySummaryContent() {
-    // Handle payroll-style data structure
+  Widget _buildSummaryTab() {
     final attendance =
         monthlyData!['attendance'] as Map<String, dynamic>? ?? {};
     final formatted = monthlyData!['formatted'] as Map<String, dynamic>? ?? {};
 
     final totalWorked = formatted['total_regular'] ?? '0h 0m';
     final totalOT = formatted['total_overtime'] ?? '0h 0m';
-    final completeDays = attendance['total_complete_days'] ?? 0;
-    final workingDays = attendance['total_days_present'] ?? 0;
-    final sundayDays = attendance['total_sunday_days'] ?? 0;
-    final holidayDays = attendance['total_holiday_days'] ?? 0;
+    double _safeNum(dynamic val) {
+      if (val == null) return 0.0;
+      if (val is num) return val.toDouble();
+      if (val is String) return double.tryParse(val) ?? 0.0;
+      return 0.0;
+    }
 
-    // Calculate completion rate
+    final double completeDays = _safeNum(attendance['total_complete_days']);
+    final double workingDays = _safeNum(attendance['total_days_present']);
+    final double sundayDays = _safeNum(attendance['total_sunday_days']);
+    final double holidayDays = _safeNum(attendance['total_holiday_days']);
+
     final completionRate = workingDays > 0
         ? ((completeDays / workingDays) * 100).round()
         : 0;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Header with period
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: _pureWhite,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: _lightGray, width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: _pureBlack.withOpacity(0.02),
-                blurRadius: 20,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 120),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildPeriodSelector(),
+          const SizedBox(height: 20),
+          Row(
             children: [
-              const Text(
-                'Monthly Summary',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: _charcoal,
+              Expanded(
+                child: _buildMetricCard(
+                  icon: Icons.schedule_outlined,
+                  iconColor: _softGreen,
+                  title: 'Regular Hours',
+                  value: totalWorked,
+                  subtitle: 'Monthly work',
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Flexible(
-                    child: Row(
-                      children: [
-                        // Date Range Picker Button
-                        GestureDetector(
-                          onTap: _showDateRangePicker,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _offWhite,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: _lightGray, width: 1),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.calendar_today,
-                                  size: 16,
-                                  color: _mediumGray,
-                                ),
-                                const SizedBox(width: 6),
-                                Flexible(
-                                  child: Text(
-                                    _isCustomRange
-                                        ? '${_startDate != null ? '${_startDate!.day}/${_startDate!.month}/${_startDate!.year}' : ''} — ${_endDate != null ? '${_endDate!.day}/${_endDate!.month}/${_endDate!.year}' : ''}'
-                                        : 'Current Month',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      color: _mediumGray,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                    maxLines: 1,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildMetricCard(
-                      icon: Icons.schedule_outlined,
-                      iconColor: _softGreen,
-                      title: 'Regular Hours',
-                      value: totalWorked,
-                      subtitle: 'Standard working hours',
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildMetricCard(
-                      icon: Icons.access_time_outlined,
-                      iconColor: _softRed,
-                      title: 'Total OT',
-                      value: totalOT,
-                      subtitle: 'All overtime hours',
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 24),
-
-        // Detailed breakdown
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: _pureWhite,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: _lightGray, width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: _pureBlack.withOpacity(0.02),
-                blurRadius: 20,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Attendance Breakdown',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: _charcoal,
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildMetricCard(
+                  icon: Icons.access_time_outlined,
+                  iconColor: _softRed,
+                  title: 'Total OT',
+                  value: totalOT,
+                  subtitle: 'Total overtime',
                 ),
               ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildDetailMetric(
-                      icon: Icons.calendar_today_outlined,
-                      iconColor: _charcoal,
-                      title: 'Days Present',
-                      value: '$workingDays',
-                      subtitle: 'Total worked days',
+            ],
+          ),
+          const SizedBox(height: 24),
+          _buildSectionTitle('Attendance Breakdown'),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: _pureWhite,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _lightGray, width: 1),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildDetailMetric(
+                        icon: Icons.calendar_today_outlined,
+                        iconColor: _charcoal,
+                        title: 'Present',
+                        value: '$workingDays',
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 20),
-                  Expanded(
-                    child: _buildDetailMetric(
-                      icon: Icons.check_circle_outline_rounded,
-                      iconColor: _softGreen,
-                      title: 'Complete Days',
-                      value: '$completeDays',
-                      subtitle: 'Full check-in/out',
+                    Expanded(
+                      child: _buildDetailMetric(
+                        icon: Icons.check_circle_outline_rounded,
+                        iconColor: _softGreen,
+                        title: 'Complete',
+                        value: '$completeDays',
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildDetailMetric(
-                      icon: Icons.weekend_outlined,
-                      iconColor: _softRed,
-                      title: 'Sundays',
-                      value: '$sundayDays',
-                      subtitle: 'Sunday work days',
+                  ],
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Divider(height: 1, color: _lightGray),
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildDetailMetric(
+                        icon: Icons.weekend_outlined,
+                        iconColor: _softRed,
+                        title: 'Sundays',
+                        value: '$sundayDays',
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 20),
-                  Expanded(
-                    child: _buildDetailMetric(
-                      icon: Icons.beach_access_outlined,
-                      iconColor: Colors.orange,
-                      title: 'Holidays',
-                      value: '$holidayDays',
-                      subtitle: 'Holiday work days',
+                    Expanded(
+                      child: _buildDetailMetric(
+                        icon: Icons.beach_access_outlined,
+                        iconColor: Colors.orange,
+                        title: 'Holidays',
+                        value: '$holidayDays',
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              // Completion rate
-              ShimmerEffect(
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: _offWhite,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: _lightGray, width: 1),
-                  ),
-                  child: Row(
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: _charcoal,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    SizedBox(
+                      width: 50,
+                      height: 50,
+                      child: CircularProgressIndicator(
+                        value: completionRate / 100,
+                        backgroundColor: Colors.white.withOpacity(0.1),
+                        color: _softGreen,
+                        strokeWidth: 6,
+                        strokeCap: StrokeCap.round,
+                      ),
+                    ),
+                    Text(
+                      '$completionRate%',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: _softGreen.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.trending_up_outlined,
-                          color: _softGreen,
-                          size: 20,
+                      const Text(
+                        'Completion Rate',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Completion Rate',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: _charcoal,
-                              ),
-                            ),
-                            TweenAnimationBuilder<double>(
-                              tween: Tween<double>(
-                                begin: 0,
-                                end: completionRate.toDouble(),
-                              ),
-                              duration: const Duration(seconds: 1),
-                              builder: (context, animatedValue, child) {
-                                return Text(
-                                  '${animatedValue.round()}%',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: _softGreen,
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
+                      Text(
+                        'Your efficiency this month',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.6),
+                          fontSize: 12,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-
-        const SizedBox(height: 24),
-
-        // OT Breakdown
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: _pureWhite,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: _lightGray, width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: _pureBlack.withOpacity(0.02),
-                blurRadius: 20,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(height: 24),
+          _buildSectionTitle('OT Details'),
+          const SizedBox(height: 12),
+          Row(
             children: [
-              const Text(
-                'Overtime Breakdown',
-                style: TextStyle(
-                  fontSize: 18,
+              Expanded(
+                child: _buildOTMetric(
+                  icon: Icons.work_outline,
+                  iconColor: Colors.blue,
+                  title: 'Normal OT',
+                  value: formatted['total_weekday_ot'] ?? '0h 0m',
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildOTMetric(
+                  icon: Icons.weekend_outlined,
+                  iconColor: Colors.orange,
+                  title: 'Sunday OT',
+                  value: formatted['total_sunday_ot'] ?? '0h 0m',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildOTMetric(
+            icon: Icons.star_outline,
+            iconColor: Colors.purple,
+            title: 'Double OT',
+            value: _formatDoubleOT(formatted['total_double_ot'] ?? '0h 0m'),
+            fullWidth: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDailyTab() {
+    final dailyBreakdown =
+        monthlyData!['daily_breakdown'] as List<dynamic>? ?? [];
+
+    if (dailyBreakdown.isEmpty) {
+      return _buildEmptyBreakdown();
+    }
+
+    final sortedBreakdown = dailyBreakdown
+        .map((day) => day as Map<String, dynamic>)
+        .toList()
+      ..sort((a, b) {
+        try {
+          return DateTime.parse(b['date'] as String)
+              .compareTo(DateTime.parse(a['date'] as String));
+        } catch (e) {
+          return 0;
+        }
+      });
+
+    return ListView.builder(
+      padding: const EdgeInsets.only(left: 20, right: 20, top: 10, bottom: 120),
+      itemCount: sortedBreakdown.length,
+      itemBuilder: (context, index) {
+        final day = sortedBreakdown[index];
+        return _buildDailyItem(day);
+      },
+    );
+  }
+
+  Widget _buildDailyItem(Map<String, dynamic> day) {
+    final date = day['date'] as String;
+    final formatted = day['formatted'] as Map<String, dynamic>? ?? {};
+    final checkIn = day['check_in'] as String?;
+    final checkOut = day['check_out'] as String?;
+    final dayType = day['day_type'] as String? ?? 'Weekday';
+    final dayStatus = day['day_status'] as String? ?? 'present';
+    final isOvernight = day['is_overnight'] == true;
+    final isLeave = dayStatus == 'leave';
+
+    final parsedDate = DateTime.parse(date);
+    final dayName = DateFormat('EEEE').format(parsedDate);
+    final dateShort = DateFormat('dd MMM').format(parsedDate);
+
+    // Styling based on special status
+    Color cardBg = _pureWhite;
+    Color borderColor = _lightGray;
+    if (isOvernight) {
+      cardBg = Colors.purple.withOpacity(0.05);
+      borderColor = Colors.purple.withOpacity(0.2);
+    } else if (isLeave) {
+      cardBg = Colors.orange.withOpacity(0.05);
+      borderColor = Colors.orange.withOpacity(0.2);
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderColor, width: 1),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _charcoal.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  dateShort,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _charcoal,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                dayName,
+                style: const TextStyle(
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: _charcoal,
                 ),
               ),
-              const SizedBox(height: 20),
-              Row(
+              const Spacer(),
+              if (isLeave) ...[
+                _buildTypeBadge('Leave', color: Colors.orange),
+                const SizedBox(width: 6),
+              ],
+              if (isOvernight) ...[
+                _buildTypeBadge('Overnight', color: Colors.purple),
+                const SizedBox(width: 6),
+              ],
+              _buildTypeBadge(dayType),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _buildTimeInfo('IN', checkIn, _softGreen),
+              _buildArrow(),
+              _buildTimeInfo('OUT', checkOut, isOvernight ? Colors.purple : _softRed, isOvernight: isOvernight),
+              const SizedBox(width: 12),
+              _buildWorkInfo(formatted['regular'] ?? '--', formatted['total_overtime'] ?? '--'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimeInfo(String label, String? time, Color color, {bool isOvernight = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 9, color: _mediumGray, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                time != null ? _formatTime(time) : '--:--',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: time != null ? color : _mediumGray,
+                ),
+              ),
+              if (isOvernight) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.nights_stay, size: 11, color: color),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildArrow() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    child: Icon(Icons.arrow_forward_rounded, size: 14, color: _lightGray.withOpacity(0.8)),
+  );
+
+  Widget _buildWorkInfo(String regular, String ot) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: _offWhite,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _workDetail('REG', regular),
+            _workDetail('OT', ot, color: _softRed),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _workDetail(String label, String val, {Color? color}) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: _mediumGray)),
+        Text(val, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: color ?? _charcoal)),
+      ],
+    );
+  }
+
+  Widget _buildTypeBadge(String type, {Color? color}) {
+    Color badgeColor = color ?? _softGreen;
+    if (color == null) {
+      if (type == 'Sunday') badgeColor = _softRed;
+      if (type == 'Holiday') badgeColor = Colors.orange;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: badgeColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        type.toUpperCase(),
+        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: badgeColor),
+      ),
+    );
+  }
+
+  Widget _buildPeriodSelector() {
+    return GestureDetector(
+      onTap: _showDateRangePicker,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _pureWhite,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _lightGray, width: 1),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.calendar_month, size: 20, color: _charcoal),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: _buildOTMetric(
-                      icon: Icons.work_outline,
-                      iconColor: Colors.blue,
-                      title: 'Normal OT',
-                      value: formatted['total_weekday_ot'] ?? '0h 0m',
-                      subtitle: 'Weekday overtime',
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildOTMetric(
-                      icon: Icons.weekend_outlined,
-                      iconColor: Colors.orange,
-                      title: 'Sunday OT',
-                      value: formatted['total_sunday_ot'] ?? '0h 0m',
-                      subtitle: 'Sunday overtime',
-                    ),
+                  const Text('REPORT PERIOD',
+                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: _mediumGray)),
+                  Text(
+                    _isCustomRange
+                        ? '${DateFormat('dd MMM').format(_startDate!)} - ${DateFormat('dd MMM yyyy').format(_endDate!)}'
+                        : DateFormat('MMMM yyyy').format(DateTime.now()),
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _charcoal),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+            ),
+            const Icon(Icons.keyboard_arrow_down_rounded, color: _mediumGray),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title.toUpperCase(),
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+        color: _mediumGray,
+        letterSpacing: 1.2,
+      ),
+    );
+  }
+
+  Widget _buildDock() {
+    return Container(
+      height: 72,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: Colors.black.withOpacity(0.05), width: 0.5),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(100),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Stack(
+            children: [
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeOutBack,
+                left: _dockPillLeft() + 4,
+                top: 0,
+                bottom: 0,
+                child: Container(
+                  width: _dockPillWidth() - 8,
+                  decoration: BoxDecoration(
+                    color: _pureWhite,
+                    borderRadius: BorderRadius.circular(100),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      )
+                    ],
+                  ),
+                ),
+              ),
               Row(
                 children: [
-                  Expanded(
-                    child: _buildOTMetric(
-                      icon: Icons.star_outline,
-                      iconColor: Colors.purple,
-                      title: 'Double OT',
-                      value: _formatDoubleOT(
-                        formatted['total_double_ot'] ?? '0h 0m',
-                      ),
-                      subtitle: '2× rate (Sun/Holiday)',
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildOTMetric(
-                      icon: Icons.access_time,
-                      iconColor: _softRed,
-                      title: 'Total OT',
-                      value: formatted['total_overtime'] ?? '0h 0m',
-                      subtitle: 'All OT combined',
-                    ),
-                  ),
+                  _dockItem(0, Icons.bar_chart_rounded, Icons.bar_chart_outlined, 'Summary'),
+                  _dockItem(1, Icons.list_alt_rounded, Icons.list_alt_outlined, 'Daily'),
                 ],
               ),
             ],
           ),
         ),
-
-        const SizedBox(height: 24),
-
-        // Daily Breakdown
-        _buildDailyBreakdown(),
-      ],
+      ),
     );
   }
 
-  String _formatDoubleOT(String doubleOT) {
-    // Parse the double OT value and show the calculation
-    // e.g., "2× 2h = 4h" or "2× 30m = 1h"
-    try {
-      // Extract hours and minutes from the input string
-      final parts = doubleOT.split(' ');
-      int hours = 0;
-      int minutes = 0;
-
-      for (final part in parts) {
-        if (part.endsWith('h')) {
-          hours = int.parse(part.replaceAll('h', ''));
-        } else if (part.endsWith('m')) {
-          minutes = int.parse(part.replaceAll('m', ''));
-        }
-      }
-
-      // Calculate total (2×)
-      final totalMinutes = (hours * 60 + minutes) * 2;
-      final totalHours = totalMinutes ~/ 60;
-      final remainingMinutes = totalMinutes % 60;
-
-      String totalStr = '';
-      if (totalHours > 0 && remainingMinutes > 0) {
-        totalStr = '${totalHours}h ${remainingMinutes}m';
-      } else if (totalHours > 0) {
-        totalStr = '${totalHours}h';
-      } else {
-        totalStr = '${remainingMinutes}m';
-      }
-
-      // Show original and calculated: "2× 2h = 4h"
-      return '2× $doubleOT = $totalStr';
-    } catch (e) {
-      // Fallback to original value if parsing fails
-      return doubleOT;
-    }
+  double _dockPillLeft() {
+    final width = MediaQuery.of(context).size.width - 48; 
+    final itemWidth = (width - 16) / 2;
+    return _tab * itemWidth;
   }
 
-  Widget _buildOTMetric({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String value,
-    required String subtitle,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _offWhite,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _lightGray, width: 1),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 16, color: iconColor),
-              const SizedBox(width: 6),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w400,
-                  color: _mediumGray,
-                ),
+  double _dockPillWidth() {
+    final width = MediaQuery.of(context).size.width - 48;
+    return (width - 16) / 2;
+  }
+
+  Widget _dockItem(int index, IconData active, IconData inactive, String label) {
+    final isActive = _tab == index;
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _setTab(index),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isActive ? active : inactive,
+              color: isActive ? _charcoal : _mediumGray,
+              size: 22,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                color: isActive ? _charcoal : _mediumGray,
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: _charcoal,
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w400,
-              color: _mediumGray,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDailyBreakdown() {
-    final dailyBreakdown =
-        monthlyData!['daily_breakdown'] as List<dynamic>? ?? [];
-
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: _pureWhite,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: _lightGray, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: _pureBlack.withOpacity(0.02),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Daily Breakdown',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: _charcoal,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            height: 300, // Fixed height for scrollable area
-            decoration: BoxDecoration(
-              color: _offWhite,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _lightGray, width: 1),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: dailyBreakdown.isEmpty
-                  ? _buildEmptyBreakdown()
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(vertical: 5),
-                      itemCount: dailyBreakdown.length,
-                      itemBuilder: (context, index) {
-                        // Sort daily breakdown by date in descending order (newest first)
-                        final sortedBreakdown =
-                            dailyBreakdown
-                                .map((day) => day as Map<String, dynamic>)
-                                .toList()
-                              ..sort((a, b) {
-                                try {
-                                  final dateA = DateTime.parse(
-                                    a['date'] as String,
-                                  );
-                                  final dateB = DateTime.parse(
-                                    b['date'] as String,
-                                  );
-                                  return dateB.compareTo(
-                                    dateA,
-                                  ); // Descending order
-                                } catch (e) {
-                                  return 0;
-                                }
-                              });
-
-                        final day = sortedBreakdown[index];
-                        final date = day['date'] as String;
-                        final formatted =
-                            day['formatted'] as Map<String, dynamic>? ?? {};
-                        final checkIn = day['check_in'] as String?;
-                        final checkOut = day['check_out'] as String?;
-                        final dayType = day['day_type'] as String? ?? 'Weekday';
-
-                        final isOvernight = day['is_overnight'] == true;
-                        final shiftDate = day['shift_date'] as String?;
-
-                        return Container(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 4,
-                          ),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: _pureWhite,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: _lightGray, width: 1),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Date and day type
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Row(
-                                      children: [
-                                        if (_formatDate(date) == 'Today') ...[
-                                          Icon(
-                                            Icons.circle,
-                                            size: 6,
-                                            color: _softGreen,
-                                          ),
-                                          const SizedBox(width: 4),
-                                        ],
-                                        Text(
-                                          _formatDate(date),
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                            color: _charcoal,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: dayType == 'Sunday'
-                                                ? Colors.red.withOpacity(0.1)
-                                                : dayType == 'Holiday'
-                                                ? Colors.orange.withOpacity(0.1)
-                                                : Colors.green.withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            dayType,
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w500,
-                                              color: dayType == 'Sunday'
-                                                  ? Colors.red
-                                                  : dayType == 'Holiday'
-                                                  ? Colors.orange
-                                                  : Colors.green,
-                                            ),
-                                          ),
-                                        ),
-                                        if (isOvernight) ...[
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 6,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.indigo.withOpacity(
-                                                0.1,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                            child: const Text(
-                                              '🌙 Overnight',
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w600,
-                                                color: Colors.indigo,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-
-                              // Times
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Check In',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w400,
-                                            color: _mediumGray,
-                                          ),
-                                        ),
-                                        Text(
-                                          checkIn != null
-                                              ? checkIn
-                                                    .split(':')
-                                                    .take(2)
-                                                    .join(':')
-                                              : '—',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                            color: _charcoal,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Check Out',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w400,
-                                            color: _mediumGray,
-                                          ),
-                                        ),
-                                        Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.baseline,
-                                          textBaseline: TextBaseline.alphabetic,
-                                          children: [
-                                            Text(
-                                              checkOut != null
-                                                  ? checkOut
-                                                        .split(':')
-                                                        .take(2)
-                                                        .join(':')
-                                                  : '—',
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w500,
-                                                color: _charcoal,
-                                              ),
-                                            ),
-                                            if (isOvernight &&
-                                                shiftDate != null) ...[
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                '(${DateFormat('MMM d').format(DateTime.parse(shiftDate))})',
-                                                style: const TextStyle(
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Colors.indigo,
-                                                ),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-
-                              // Duration and OT breakdown
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Duration',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w400,
-                                            color: _mediumGray,
-                                          ),
-                                        ),
-                                        Text(
-                                          formatted['duration'] ?? '0h 0m',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: _charcoal,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Regular',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w400,
-                                            color: _mediumGray,
-                                          ),
-                                        ),
-                                        Text(
-                                          formatted['regular'] ?? '0h 0m',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.green,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Total OT',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w400,
-                                            color: _mediumGray,
-                                          ),
-                                        ),
-                                        Text(
-                                          formatted['total_overtime'] ??
-                                              '0h 0m',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: _softRed,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyBreakdown() {
-    return Container(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.calendar_view_day_outlined,
-            size: 48,
-            color: _mediumGray.withOpacity(0.4),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No attendance records',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: _charcoal.withOpacity(0.7),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'No check-in/check-out records found for the selected period.',
-            style: TextStyle(
-              fontSize: 12,
-              color: _mediumGray,
-              fontWeight: FontWeight.w400,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1057,44 +795,39 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
     required String subtitle,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _offWhite,
-        borderRadius: BorderRadius.circular(16),
+        color: _pureWhite,
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: _lightGray, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 16, color: iconColor),
-              const SizedBox(width: 6),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w400,
-                  color: _mediumGray,
-                ),
-              ),
-            ],
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
           Text(
             value,
             style: const TextStyle(
               fontSize: 20,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w800,
               color: _charcoal,
+              letterSpacing: -0.5,
             ),
           ),
           const SizedBox(height: 4),
           Text(
-            subtitle,
+            title,
             style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w400,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
               color: _mediumGray,
             ),
           ),
@@ -1108,89 +841,76 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
     required Color iconColor,
     required String title,
     required String value,
-    required String subtitle,
   }) {
-    return Column(
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: iconColor, size: 24),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w600,
-            color: _charcoal,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: _mediumGray,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 2),
-        Text(
-          subtitle,
-          style: const TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w400,
-            color: _mediumGray,
-          ),
-          textAlign: TextAlign.center,
+        Icon(icon, size: 18, color: iconColor.withOpacity(0.8)),
+        const SizedBox(width: 8),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: _charcoal,
+              ),
+            ),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: _mediumGray,
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
 
-  Widget _buildErrorContent() {
+  Widget _buildOTMetric({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String value,
+    bool fullWidth = false,
+  }) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(16),
+      width: fullWidth ? double.infinity : null,
       decoration: BoxDecoration(
-        color: _pureWhite,
-        borderRadius: BorderRadius.circular(24),
+        color: _offWhite,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: _lightGray, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: _pureBlack.withOpacity(0.02),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.calendar_view_month_outlined,
-            size: 48,
-            color: _mediumGray.withOpacity(0.3),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Monthly Summary',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-              color: _charcoal,
-            ),
+          Row(
+            children: [
+              Icon(icon, size: 14, color: iconColor),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: _mediumGray,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           Text(
-            'Failed to load data',
-            style: TextStyle(
-              fontSize: 13,
-              color: _mediumGray,
-              fontWeight: FontWeight.w400,
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: _charcoal,
             ),
           ),
         ],
@@ -1198,23 +918,74 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
     );
   }
 
-  String _formatDate(String dateString) {
-    try {
-      final date = DateTime.parse(dateString);
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final yesterday = today.subtract(const Duration(days: 1));
-      final dateOnly = DateTime(date.year, date.month, date.day);
+  Widget _buildEmptyBreakdown() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.event_note_outlined, size: 48, color: _lightGray),
+          SizedBox(height: 16),
+          Text(
+            'No attendance records found',
+            style: TextStyle(color: _mediumGray, fontSize: 14, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
+  }
 
-      if (dateOnly == today) {
-        return 'Today';
-      } else if (dateOnly == yesterday) {
-        return 'Yesterday';
-      } else {
-        return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
-      }
+  Widget _buildErrorContent() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline_rounded, size: 48, color: _softRed),
+          const SizedBox(height: 16),
+          const Text(
+            'Failed to load summary',
+            style: TextStyle(color: _charcoal, fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _loadMonthlyData,
+            child: const Text('Try Again', style: TextStyle(color: _softGreen)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(String time) {
+    try {
+      final parts = time.split(':');
+      final hour = int.parse(parts[0]);
+      final minute = int.parse(parts[1]);
+      final dt = DateTime(2024, 1, 1, hour, minute);
+      return DateFormat('h:mm a').format(dt);
     } catch (e) {
-      return dateString;
+      return time;
+    }
+  }
+
+  String _formatDoubleOT(String doubleOT) {
+    try {
+      final parts = doubleOT.split(' ');
+      int hours = 0;
+      int minutes = 0;
+      for (final part in parts) {
+        if (part.endsWith('h')) hours = int.parse(part.replaceAll('h', ''));
+        else if (part.endsWith('m')) minutes = int.parse(part.replaceAll('m', ''));
+      }
+      final totalMinutes = (hours * 60 + minutes) * 2;
+      final totalHours = totalMinutes ~/ 60;
+      final remainingMinutes = totalMinutes % 60;
+      String totalStr = '';
+      if (totalHours > 0 && remainingMinutes > 0) totalStr = '${totalHours}h ${remainingMinutes}m';
+      else if (totalHours > 0) totalStr = '${totalHours}h';
+      else totalStr = '${remainingMinutes}m';
+      return '2× $doubleOT = $totalStr';
+    } catch (e) {
+      return doubleOT;
     }
   }
 }

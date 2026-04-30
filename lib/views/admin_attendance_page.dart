@@ -915,6 +915,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
     final pfp = u['pfp'] as String?;
     final isOvernight = u['is_overnight'] == true;
     final shiftDate = u['shift_date'] as String?;
+    final permissionMinutes = u['permission_minutes'] ?? 0;
+    final permissionType = u['permission_type'] as String?;
 
     return RepaintBoundary(
       child: Container(
@@ -978,6 +980,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                     hasOut,
                     date,
                     isOvernight: isOvernight,
+                    permissionMinutes: permissionMinutes,
+                    permissionType: permissionType,
                   ),
                 ],
               ),
@@ -1082,6 +1086,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
     bool hasOut,
     String date, {
     bool isOvernight = false,
+    int permissionMinutes = 0,
+    String? permissionType,
   }) {
     if (duration != null) {
       return Row(
@@ -1095,6 +1101,14 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
           if (isOvernight) ...[
             const SizedBox(width: 5),
             _chip('Overnight', Colors.indigo, Icons.nightlight_round),
+          ],
+          if (permissionMinutes > 0) ...[
+            const SizedBox(width: 5),
+            _chip(
+              '+${permissionMinutes < 60 ? '${permissionMinutes}m' : (permissionMinutes % 60 == 0 ? '${permissionMinutes ~/ 60}h' : '${permissionMinutes ~/ 60}h ${permissionMinutes % 60}m')}',
+              _amber,
+              Icons.verified_user_rounded,
+            ),
           ],
         ],
       );

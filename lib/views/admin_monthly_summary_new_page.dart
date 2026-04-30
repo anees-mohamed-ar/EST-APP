@@ -375,6 +375,13 @@ class _AdminMonthlySummaryNewPageState
     );
   }
 
+  double _safeDouble(dynamic val) {
+    if (val == null) return 0.0;
+    if (val is num) return val.toDouble();
+    if (val is String) return double.tryParse(val) ?? 0.0;
+    return 0.0;
+  }
+
   Widget _buildUserCard(dynamic user, dynamic userStats) {
     final String role = user['role'] ?? 'single user';
     final bool isAdmin = role == 'admin';
@@ -557,7 +564,7 @@ class _AdminMonthlySummaryNewPageState
                       Expanded(
                         child: _buildOvertimeItem(
                           'Double OT',
-                          formatted['total_double_ot'] ?? '0h',
+                          _formatDoubleOT(formatted['total_double_ot'] ?? '0h'),
                           Colors.purple,
                         ),
                       ),
@@ -624,9 +631,9 @@ class _AdminMonthlySummaryNewPageState
                       ClipRRect(
                         borderRadius: BorderRadius.circular(4),
                         child: LinearProgressIndicator(
-                          value: (attendance['total_days_present'] ?? 0) > 0
-                              ? (attendance['total_complete_days'] ?? 0) /
-                                    (attendance['total_days_present'] ?? 1)
+                          value: _safeDouble(attendance['total_days_present']) > 0
+                              ? _safeDouble(attendance['total_complete_days']) /
+                                    _safeDouble(attendance['total_days_present'])
                               : 0,
                           backgroundColor: _hoverBg,
                           valueColor: AlwaysStoppedAnimation<Color>(
@@ -737,5 +744,26 @@ class _AdminMonthlySummaryNewPageState
         Text(label, style: TextStyle(fontSize: 10, color: _textSecondary)),
       ],
     );
+  }
+  String _formatDoubleOT(String doubleOT) {
+    try {
+      final parts = doubleOT.split(' ');
+      int hours = 0;
+      int minutes = 0;
+      for (final part in parts) {
+        if (part.endsWith('h')) hours = int.parse(part.replaceAll('h', ''));
+        else if (part.endsWith('m')) minutes = int.parse(part.replaceAll('m', ''));
+      }
+      final totalMinutes = (hours * 60 + minutes) * 2;
+      final totalHours = totalMinutes ~/ 60;
+      final remainingMinutes = totalMinutes % 60;
+      String totalStr = '';
+      if (totalHours > 0 && remainingMinutes > 0) totalStr = '${totalHours}h ${remainingMinutes}m';
+      else if (totalHours > 0) totalStr = '${totalHours}h';
+      else totalStr = '${remainingMinutes}m';
+      return '2× $doubleOT = $totalStr';
+    } catch (e) {
+      return doubleOT;
+    }
   }
 }

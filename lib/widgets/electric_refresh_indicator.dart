@@ -141,9 +141,13 @@ class _ElectricRefreshIndicatorState extends State<ElectricRefreshIndicator>
       if (_armed) {
         _triggerRefresh();
       } else {
-        setState(() {
-          _pullProgress = 0.0;
-          _armed = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _pullProgress = 0.0;
+              _armed = false;
+            });
+          }
         });
       }
     }

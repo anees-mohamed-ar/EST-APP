@@ -13,6 +13,8 @@ import '../services/api_service.dart';
 import 'odometer_camera_page.dart';
 import 'vehicle_history_page.dart';
 import '../services/location_service.dart';
+import '../widgets/swipe_to_confirm.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const _bg     = Color(0xFFF4F5F7);
@@ -331,310 +333,7 @@ void _showPreview(BuildContext context, File file) {
   );
 }
 
-// ─── Timer Progress Painter (Match Camera Review Page) ────────────────────────
-class _TimerProgressPainter extends CustomPainter {
-  final double progress;
-  final bool isWarning;
-  final Color color;
 
-  _TimerProgressPainter({required this.progress, required this.isWarning, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const double strokeWidth = 2.5;
-    final Paint progressPaint = Paint()
-      ..color = isWarning ? Colors.red : color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-
-    final Paint backgroundPaint = Paint()
-      ..color = (isWarning ? Colors.red : color).withOpacity(0.15)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth;
-
-    final Offset center = Offset(size.width / 2, size.height / 2);
-    final double radius = (size.width / 2) - (strokeWidth / 2);
-
-    // Draw background circle
-    canvas.drawCircle(center, radius, backgroundPaint);
-
-    // Draw progress arc
-    final Rect rect = Rect.fromCircle(center: center, radius: radius);
-    canvas.drawArc(
-      rect,
-      -3.14159 / 2, // Start from top
-      (progress * 2 * 3.14159), // Sweep angle based on progress
-      false,
-      progressPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_TimerProgressPainter oldDelegate) {
-    return progress != oldDelegate.progress ||
-        isWarning != oldDelegate.isWarning;
-  }
-}
-
-// ─── Swipe-to-Confirm button (Enhanced with Timer) ────────────────────────────
-class SwipeToConfirm extends StatefulWidget {
-  final String label;
-  final IconData icon;
-  final Color color;
-  final bool loading;
-  final VoidCallback onConfirmed;
-  final int countdown;
-
-  const SwipeToConfirm({
-    Key? key,
-    required this.label,
-    required this.icon,
-    this.color = const Color(0xFF22C55E),
-    this.loading = false,
-    required this.onConfirmed,
-    this.countdown = 0,
-  }) : super(key: key);
-
-  @override
-  State<SwipeToConfirm> createState() => _SwipeToConfirmState();
-}
-
-class _SwipeToConfirmState extends State<SwipeToConfirm> with TickerProviderStateMixin {
-  final _posNotifier = ValueNotifier<double>(0.0);
-  bool _triggered = false;
-
-  late final AnimationController _arrowCtrl;
-  late final List<Animation<double>> _arrowAnims;
-  late final AnimationController _loadingCtrl;
-  late final Animation<double> _loadingAnim;
-  AnimationController? _snapCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _arrowCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
-
-    _arrowAnims = List.generate(3, (i) {
-      final start = i * 0.15;
-      final end = (start + 0.70).clamp(0.0, 1.0);
-      return TweenSequence<double>([
-        TweenSequenceItem(tween: Tween(begin: 0.25, end: 1.0).chain(CurveTween(curve: Curves.easeOut)), weight: 50),
-        TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.25).chain(CurveTween(curve: Curves.easeIn)), weight: 50),
-      ]).animate(CurvedAnimation(parent: _arrowCtrl, curve: Interval(start, end)));
-    });
-
-    _loadingCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 4));
-    _loadingAnim = CurvedAnimation(parent: _loadingCtrl, curve: Curves.easeOut);
-  }
-
-  @override
-  void didUpdateWidget(SwipeToConfirm old) {
-    super.didUpdateWidget(old);
-    if (widget.loading && !old.loading) {
-      _arrowCtrl.stop();
-      _loadingCtrl.forward(from: 0.0);
-    }
-    if ((!widget.loading && old.loading) || (!widget.loading && _triggered)) {
-      _loadingCtrl.stop();
-      _snapBack();
-    }
-  }
-
-  @override
-  void dispose() {
-    _arrowCtrl.dispose();
-    _loadingCtrl.dispose();
-    _posNotifier.dispose();
-    _snapCtrl?.dispose();
-    super.dispose();
-  }
-
-  void _onPanUpdate(DragUpdateDetails d, double maxSwipe) {
-    if (_triggered || widget.loading || maxSwipe <= 0) return;
-    final newPos = (_posNotifier.value + d.delta.dx).clamp(0.0, maxSwipe);
-    _posNotifier.value = newPos;
-
-    if (newPos >= maxSwipe * 0.98) {
-      _triggered = true;
-      HapticFeedback.heavyImpact();
-      widget.onConfirmed();
-      Future.delayed(const Duration(milliseconds: 200), () {
-        if (mounted && !widget.loading && _triggered) _snapBack();
-      });
-    }
-  }
-
-  void _snapBack() {
-    _triggered = false;
-    _arrowCtrl.repeat();
-    if (_posNotifier.value <= 0) return;
-    final startPos = _posNotifier.value;
-    _snapCtrl?.stop();
-    _snapCtrl?.dispose();
-    _snapCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 400));
-    final curve = CurvedAnimation(parent: _snapCtrl!, curve: Curves.easeOutBack);
-    curve.addListener(() => _posNotifier.value = startPos * (1 - curve.value));
-    _snapCtrl!.forward();
-  }
-
-  void _onPanEnd(DragEndDetails d, double maxSwipe) {
-    if (_triggered || widget.loading || maxSwipe <= 0) return;
-    final velocity = d.velocity.pixelsPerSecond.dx;
-    if (velocity > 800 && _posNotifier.value >= maxSwipe * 0.5) {
-      _triggered = true;
-      HapticFeedback.heavyImpact();
-      widget.onConfirmed();
-      Future.delayed(const Duration(milliseconds: 200), () {
-        if (mounted && !widget.loading && _triggered) _snapBack();
-      });
-      return;
-    }
-    _snapBack();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final color = widget.loading ? _grey : widget.color;
-    return LayoutBuilder(builder: (ctx, constraints) {
-      final maxSwipe = (constraints.maxWidth - 56.0).clamp(0.0, double.infinity);
-
-      return Container(
-        height: 56,
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: color.withOpacity(0.2)),
-        ),
-        child: Stack(
-          clipBehavior: Clip.hardEdge,
-          children: [
-            // Loading Progress Fill (Simulated)
-            if (widget.loading)
-              Positioned.fill(
-                child: AnimatedBuilder(
-                  animation: _loadingAnim,
-                  builder: (context, _) => FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: _loadingAnim.value,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: widget.color.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(28),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-            // Track Fill
-            ValueListenableBuilder<double>(
-              valueListenable: _posNotifier,
-              builder: (_, pos, __) => Positioned(
-                left: 0, top: 0, bottom: 0,
-                width: (pos + 56).clamp(56.0, constraints.maxWidth),
-                child: DecoratedBox(decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(28))),
-              ),
-            ),
-
-            // Label
-            ValueListenableBuilder<double>(
-              valueListenable: _posNotifier,
-              builder: (_, pos, __) {
-                final opacity = (maxSwipe <= 0) ? 1.0 : (1.0 - (pos / maxSwipe) * 2.5).clamp(0.0, 1.0);
-                return Center(
-                  child: Opacity(
-                    opacity: opacity,
-                    child: Text(
-                      widget.loading ? 'Processing…' : widget.label,
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: color.withOpacity(0.8), letterSpacing: -0.2),
-                    ),
-                  ),
-                );
-              },
-            ),
-
-            // Guiding Arrows
-            ValueListenableBuilder<double>(
-              valueListenable: _posNotifier,
-              builder: (_, pos, __) {
-                final t = (maxSwipe <= 0) ? 0.0 : (pos / maxSwipe).clamp(0.0, 1.0);
-                final containerOpacity = (1.0 - t * 3.0).clamp(0.0, 1.0);
-                return Positioned(
-                  right: 20, top: 0, bottom: 0,
-                  child: Opacity(
-                    opacity: containerOpacity,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(3, (i) => AnimatedBuilder(
-                        animation: _arrowAnims[i],
-                        builder: (_, __) {
-                          final v = _arrowAnims[i].value;
-                          return Opacity(
-                            opacity: v,
-                            child: Transform.translate(offset: Offset((v - 0.25) * 5, 0), child: Icon(Icons.chevron_right_rounded, size: 16.0 + i * 4.5, color: color.withOpacity(0.4 + i * 0.2))),
-                          );
-                        },
-                      )),
-                    ),
-                  ),
-                );
-              },
-            ),
-
-            // Thumb with Timer Indicator
-            ValueListenableBuilder<double>(
-              valueListenable: _posNotifier,
-              builder: (context, pos, child) {
-                final isCritical = widget.countdown > 0 && widget.countdown <= 10;
-                final timerProgress = (widget.countdown / 60.0).clamp(0.0, 1.0);
-                final thumbColor = isCritical ? _red : color;
-
-                return Positioned(
-                  left: 4 + pos, top: 4, bottom: 4,
-                  child: GestureDetector(
-                    onHorizontalDragUpdate: (d) => _onPanUpdate(d, maxSwipe),
-                    onHorizontalDragEnd: (d) => _onPanEnd(d, maxSwipe),
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        if (widget.countdown > 0 && !widget.loading)
-                          CustomPaint(
-                            size: const Size(48, 48),
-                            painter: _TimerProgressPainter(progress: timerProgress, isWarning: isCritical, color: color),
-                          ),
-                        Container(
-                          width: 48,
-                          decoration: BoxDecoration(
-                            color: widget.loading ? thumbColor.withOpacity(0.6) : thumbColor,
-                            shape: BoxShape.circle,
-                            boxShadow: [BoxShadow(color: thumbColor.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 3))],
-                          ),
-                          child: Center(
-                            child: widget.loading
-                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
-                                : Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      if (widget.countdown > 0)
-                                        Text('${widget.countdown}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900, height: 1.1)),
-                                      Icon(widget.icon, color: Colors.white, size: widget.countdown > 0 ? 16 : 24),
-                                    ],
-                                  ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      );
-    });
-  }
-}
 
 
 
@@ -2690,11 +2389,14 @@ class _VehicleTab extends StatelessWidget {
   Widget _buildStop(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (activeTrip != null)
+          if (activeTrip != null) ...[
             _LiveTripBanner(
               activeTrip: activeTrip!,
               onTap: () {},
             ),
+            const SizedBox(height: 12),
+            _buildViewDocsBtn(context),
+          ],
           const SizedBox(height: 24),
 
           const _SecHead('Stop Trip'),
@@ -2765,6 +2467,249 @@ class _VehicleTab extends StatelessWidget {
           const SizedBox(height: 40),
         ],
       );
+
+  Widget _buildViewDocsBtn(BuildContext context) {
+    if (activeTrip == null) return const SizedBox();
+    final vId = activeTrip!['vehicle_id']?.toString();
+    if (vId == null) return const SizedBox();
+    
+    final vehicle = vehicles.firstWhereOrNull((v) => v['id'].toString() == vId);
+    if (vehicle == null) return const SizedBox();
+    
+    final rawDocs = vehicle['documents'];
+    if (rawDocs == null) return const SizedBox();
+    
+    List docs = [];
+    try {
+      docs = rawDocs is String ? json.decode(rawDocs) : rawDocs;
+    } catch (_) {}
+    
+    if (docs.isEmpty) return const SizedBox();
+    
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        icon: const Icon(Icons.folder_shared_rounded, size: 18),
+        label: Text('View Vehicle Documents (${docs.length})'),
+        onPressed: () => _showDocsModal(context, vehicle, docs),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: _blue,
+          backgroundColor: _white,
+          side: BorderSide(color: _blue.withValues(alpha: 0.3)),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+    );
+  }
+
+  void _showDocsModal(BuildContext context, dynamic vehicle, List docs) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        decoration: const BoxDecoration(
+          color: _bg,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 16),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: _grey.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _blue.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.folder_copy_rounded, color: _blue, size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Vehicle Documents', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _black)),
+                        Text('${vehicle['name'] ?? ''} - ${vehicle['registration_number'] ?? ''}', style: const TextStyle(fontSize: 13, color: _grey, fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: _grey),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 32),
+            Expanded(
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                itemCount: docs.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (ctx, i) {
+                  final doc = docs[i];
+                  final isObj = doc is Map;
+                  final path = isObj ? doc['path']?.toString() ?? '' : doc.toString();
+                  final remark = isObj ? doc['remark']?.toString() ?? '' : '';
+                  
+                  final fileName = path.split('/').last;
+                  final isPdf = fileName.toLowerCase().endsWith('.pdf');
+                  
+                  // Construct full URL
+                  final url = '${ApiService.baseUrl.replaceAll('/api', '')}$path';
+                  
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: _white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: _lgrey),
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 2))],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () {
+                          if (isPdf) {
+                            // Launch download URL
+                            final vehicleName = vehicle['name'] ?? 'Vehicle';
+                            final regNumber = vehicle['registration_number'] ?? '';
+                            final dlFilename = '$vehicleName - $fileName - $regNumber';
+                            final dlUrl = '${ApiService.baseUrl}/vehicles/download-document?path=${Uri.encodeComponent(path)}&filename=${Uri.encodeComponent(dlFilename)}';
+                            launchUrl(Uri.parse(dlUrl), mode: LaunchMode.externalApplication);
+                          } else {
+                            // Show image preview
+                            _showImagePreview(context, url);
+                          }
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isPdf ? _red.withValues(alpha: 0.1) : _green.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  isPdf ? Icons.picture_as_pdf_rounded : Icons.image_rounded,
+                                  color: isPdf ? _red : _green,
+                                  size: 24,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(fileName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: _black), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    if (remark.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(remark, style: const TextStyle(fontSize: 12, color: _grey)),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Icon(
+                                isPdf ? Icons.download_rounded : Icons.open_in_full_rounded,
+                                color: _grey,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showImagePreview(BuildContext context, String url) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(10),
+        child: Stack(
+          children: [
+            GestureDetector(
+              onTap: () => Navigator.pop(ctx),
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.network(
+                    url,
+                    fit: BoxFit.contain,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Center(
+                        child: CircularProgressIndicator(
+                          value: loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                              : null,
+                          color: _white,
+                        ),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      width: double.infinity,
+                      height: 300,
+                      color: _white,
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.broken_image_rounded, color: _grey, size: 48),
+                          SizedBox(height: 12),
+                          const Text('Failed to load image', style: TextStyle(color: _grey)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: GestureDetector(
+                onTap: () => Navigator.pop(ctx),
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                  child: const Icon(Icons.close, color: Colors.white, size: 20),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

@@ -30,7 +30,8 @@ class CaptureProgressPage extends StatefulWidget {
   _CaptureProgressPageState createState() => _CaptureProgressPageState();
 }
 
-class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerProviderStateMixin {
+class _CaptureProgressPageState extends State<CaptureProgressPage>
+    with TickerProviderStateMixin {
   int _currentStep = 1;
   final int _totalSteps = 3;
   double _progress = 0.0;
@@ -54,7 +55,7 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
-    
+
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.1).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
@@ -72,7 +73,9 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
     if (bytes <= 0) return "0 B";
     const suffixes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
     var i = (math.log(bytes) / math.log(1024)).floor();
-    return ((bytes / math.pow(1024, i)).toStringAsFixed(decimals)) + ' ' + suffixes[i];
+    return ((bytes / math.pow(1024, i)).toStringAsFixed(decimals)) +
+        ' ' +
+        suffixes[i];
   }
 
   Future<void> _startWorkflow() async {
@@ -96,7 +99,7 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
       });
 
       final success = await _performUpload(processedPath);
-      
+
       if (!success) {
         throw Exception('Server upload failed');
       }
@@ -108,9 +111,9 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
         _status = 'Finalizing...';
         _progress = 1.0;
       });
-      
+
       await Future.delayed(const Duration(milliseconds: 1000));
-      
+
       if (mounted) {
         setState(() {
           _isSuccess = true;
@@ -121,8 +124,13 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
       }
     } catch (e) {
       if (mounted) {
+        String errorMsg = e.toString();
+        if (errorMsg.contains('DATE_MISMATCH')) {
+          _showDateMismatchDialog();
+          return;
+        }
         setState(() {
-          _errorMessage = e.toString();
+          _errorMessage = errorMsg;
           _status = 'Task Failed';
         });
       }
@@ -135,7 +143,7 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
     if (userData == null) return false;
 
     final now = DateTime.now();
-    
+
     dynamic result;
     if (widget.isBulk && widget.userIds != null) {
       result = await ApiService.createBulkAttendance(
@@ -151,22 +159,25 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
           if (total > 0) {
             final now = DateTime.now();
             _startTime ??= now;
-            
+
             final elapsed = now.difference(_startTime!).inMilliseconds;
-            if (elapsed > 100) { // update speed every 100ms
+            if (elapsed > 100) {
+              // update speed every 100ms
               final speedBytesPerMs = sent / elapsed;
               final speedKBps = (speedBytesPerMs * 1000) / 1024;
-              
+
               final remainingBytes = total - sent;
-              final remainingMs = speedBytesPerMs > 0 ? remainingBytes / speedBytesPerMs : 0;
+              final remainingMs = speedBytesPerMs > 0
+                  ? remainingBytes / speedBytesPerMs
+                  : 0;
               final etaSec = (remainingMs / 1000).ceil();
-              
+
               if (mounted) {
                 setState(() {
-                  _speedText = speedKBps > 1024 
-                      ? '${(speedKBps / 1024).toStringAsFixed(1)} MB/s' 
+                  _speedText = speedKBps > 1024
+                      ? '${(speedKBps / 1024).toStringAsFixed(1)} MB/s'
                       : '${speedKBps.toStringAsFixed(1)} KB/s';
-                  _etaText = etaSec > 60 
+                  _etaText = etaSec > 60
                       ? '${(etaSec / 60).floor()}m ${etaSec % 60}s'
                       : '${etaSec}s remaining';
                   _sentBytes = sent;
@@ -175,13 +186,13 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
                 });
               }
             } else {
-               if (mounted) {
-                 setState(() {
-                   _sentBytes = sent;
-                   _totalBytes = total;
-                   _progress = 0.4 + ((sent / total) * 0.55);
-                 });
-               }
+              if (mounted) {
+                setState(() {
+                  _sentBytes = sent;
+                  _totalBytes = total;
+                  _progress = 0.4 + ((sent / total) * 0.55);
+                });
+              }
             }
           }
         },
@@ -202,22 +213,24 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
           if (total > 0) {
             final now = DateTime.now();
             _startTime ??= now;
-            
+
             final elapsed = now.difference(_startTime!).inMilliseconds;
             if (elapsed > 100) {
               final speedBytesPerMs = sent / elapsed;
               final speedKBps = (speedBytesPerMs * 1000) / 1024;
-              
+
               final remainingBytes = total - sent;
-              final remainingMs = speedBytesPerMs > 0 ? remainingBytes / speedBytesPerMs : 0;
+              final remainingMs = speedBytesPerMs > 0
+                  ? remainingBytes / speedBytesPerMs
+                  : 0;
               final etaSec = (remainingMs / 1000).ceil();
-              
+
               if (mounted) {
                 setState(() {
-                  _speedText = speedKBps > 1024 
-                      ? '${(speedKBps / 1024).toStringAsFixed(1)} MB/s' 
+                  _speedText = speedKBps > 1024
+                      ? '${(speedKBps / 1024).toStringAsFixed(1)} MB/s'
                       : '${speedKBps.toStringAsFixed(1)} KB/s';
-                  _etaText = etaSec > 60 
+                  _etaText = etaSec > 60
                       ? '${(etaSec / 60).floor()}m ${etaSec % 60}s'
                       : '${etaSec}s remaining';
                   _sentBytes = sent;
@@ -226,19 +239,19 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
                 });
               }
             } else {
-               if (mounted) {
-                 setState(() {
-                   _sentBytes = sent;
-                   _totalBytes = total;
-                   _progress = 0.4 + ((sent / total) * 0.55);
-                 });
-               }
+              if (mounted) {
+                setState(() {
+                  _sentBytes = sent;
+                  _totalBytes = total;
+                  _progress = 0.4 + ((sent / total) * 0.55);
+                });
+              }
             }
           }
         },
       );
     }
-    
+
     if (result['success'] == true) {
       final msg = (result['message'] ?? '').toString().toLowerCase();
       _isCheckOut = msg.contains('check-out') || msg.contains('checkout');
@@ -250,11 +263,14 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
   Future<String> _addOverlay(String imagePath) async {
     final File imageFile = File(imagePath);
     final bytes = await imageFile.readAsBytes();
-    
+
     // ── STEP 1: Decode & Resize ──────────────────────────────────────────────
     // Resize to 1280px width to keep file size small while maintaining detail
     const int targetWidth = 1280;
-    final ui.Codec codec = await ui.instantiateImageCodec(bytes, targetWidth: targetWidth);
+    final ui.Codec codec = await ui.instantiateImageCodec(
+      bytes,
+      targetWidth: targetWidth,
+    );
     final ui.FrameInfo fi = await codec.getNextFrame();
     final ui.Image srcImage = fi.image;
 
@@ -264,60 +280,152 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
     // ── STEP 2: Draw Watermark ──────────────────────────────────────────────
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, w, h));
-    canvas.drawImage(srcImage, Offset.zero, Paint()..filterQuality = FilterQuality.medium);
-    
+    canvas.drawImage(
+      srcImage,
+      Offset.zero,
+      Paint()..filterQuality = FilterQuality.medium,
+    );
+
     final userData = ApiService.storage.read('user');
     final username = userData != null ? userData['username'] : 'N/A';
-    final siteName = widget.siteName != null && widget.siteName!.isNotEmpty ? widget.siteName : 'N/A';
+    final siteName = widget.siteName != null && widget.siteName!.isNotEmpty
+        ? widget.siteName
+        : 'N/A';
 
-    final watermarkText = 
-      'EST-TRACK | ${DateFormat('MMM d, yyyy  hh:mm a').format(DateTime.now())} | LOC: ${widget.lat ?? "N/A"}, ${widget.lang ?? "N/A"}\n'
-      'SITE: $siteName\n'
-      'Captured by: $username';
+    final watermarkText =
+        'MEPL-TRACK | ${DateFormat('MMM d, yyyy  hh:mm a').format(DateTime.now())} | LOC: ${widget.lat ?? "N/A"}, ${widget.lang ?? "N/A"}\n'
+        'SITE: $siteName\n'
+        'Captured by: $username';
 
     final tp = TextPainter(
       text: TextSpan(
         text: watermarkText,
         style: TextStyle(
-          color: Colors.white, 
-          fontSize: w * 0.02, 
+          color: Colors.white,
+          fontSize: w * 0.02,
           fontWeight: FontWeight.bold,
-          height: 1.3
+          height: 1.3,
         ),
       ),
       textDirection: ui.TextDirection.ltr,
     );
     tp.layout(maxWidth: w - 40);
-    
+
     final padding = w * 0.02;
     final barH = tp.height + padding * 2;
-    
+
     canvas.drawRect(
-      Rect.fromLTWH(0, h - barH, w, barH), 
-      Paint()..color = Colors.black.withOpacity(0.6)
+      Rect.fromLTWH(0, h - barH, w, barH),
+      Paint()..color = Colors.black.withOpacity(0.6),
     );
-    
+
     tp.paint(canvas, Offset(padding, h - barH + padding));
 
     // ── STEP 3: Finalize & Compress ──────────────────────────────────────────
     final picture = recorder.endRecording();
     final finalUiImg = await picture.toImage(w.toInt(), h.toInt());
-    
+
     // Convert to PNG first (standard Flutter path)
     final pngData = await finalUiImg.toByteData(format: ui.ImageByteFormat.png);
     final pngBytes = pngData!.buffer.asUint8List();
-    
+
     // Decode PNG and Re-encode as high-compression JPEG
     final decoded = img_lib.decodeImage(pngBytes);
     if (decoded == null) throw Exception('Image processing failed');
-    
+
     final jpgBytes = img_lib.encodeJpg(decoded, quality: 70);
-    
+
     final directory = await File(imagePath).parent.path;
-    final String newPath = '$directory/upload_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final String newPath =
+        '$directory/upload_${DateTime.now().millisecondsSinceEpoch}.jpg';
     await File(newPath).writeAsBytes(jpgBytes);
-    
+
     return newPath;
+  }
+
+  void _showDateMismatchDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.date_range, size: 32, color: Colors.red),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Date Mismatch',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Your device date is not synchronized with the server.',
+                style: TextStyle(fontSize: 18, height: 1.5),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Please correct your device date and time settings and try again.',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                  height: 1.4,
+                ),
+              ),
+              SizedBox(height: 16),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange[300]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange[700]),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Go to Settings > Date & Time to fix this issue.',
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: Colors.orange[900],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Get.back();
+              },
+              child: Text(
+                'Go Back',
+                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Get.back();
+              },
+              child: Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -338,7 +446,9 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
                   height: 120,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _errorMessage != null ? Colors.red.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+                    color: _errorMessage != null
+                        ? Colors.red.withOpacity(0.1)
+                        : Colors.black.withOpacity(0.05),
                   ),
                   child: Stack(
                     alignment: Alignment.center,
@@ -356,21 +466,28 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
                         ),
                       ),
                       Icon(
-                        _errorMessage != null 
-                          ? Icons.error_outline 
-                          : (_isSuccess ? Icons.check_circle : Icons.cloud_upload_outlined),
+                        _errorMessage != null
+                            ? Icons.error_outline
+                            : (_isSuccess
+                                  ? Icons.check_circle
+                                  : Icons.cloud_upload_outlined),
                         size: 40,
-                        color: _errorMessage != null ? Colors.red : Colors.black,
+                        color: _errorMessage != null
+                            ? Colors.red
+                            : Colors.black,
                       ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 48),
-              
+
               // Step Counter
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(100),
@@ -386,7 +503,7 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
                 ),
               ),
               const SizedBox(height: 16),
-              
+
               // Status Text
               Text(
                 _status,
@@ -398,37 +515,50 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
                 ),
               ),
               if (_currentStep == 2 && _totalBytes > 0) ...[
-                 const SizedBox(height: 12),
-                 Text(
-                   '${_formatBytes(_sentBytes, 1)} / ${_formatBytes(_totalBytes, 1)} (${((_sentBytes/_totalBytes)*100).toStringAsFixed(1)}%)',
-                   style: const TextStyle(
-                     fontSize: 16,
-                     fontWeight: FontWeight.w600,
-                     color: Colors.black54,
-                     fontFamily: 'monospace'
-                   ),
-                 ),
-                 const SizedBox(height: 8),
-                 Row(
-                   mainAxisAlignment: MainAxisAlignment.center,
-                   children: [
-                     Text(
-                       _speedText,
-                       style: TextStyle(color: Colors.black.withOpacity(0.35), fontSize: 13, fontWeight: FontWeight.bold),
-                     ),
-                     Container(
-                       margin: const EdgeInsets.symmetric(horizontal: 10),
-                       width: 4, height: 4, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.black.withOpacity(0.1)),
-                     ),
-                     Text(
-                       _etaText,
-                       style: TextStyle(color: Colors.black.withOpacity(0.35), fontSize: 13, fontWeight: FontWeight.bold),
-                     ),
-                   ],
-                 )
+                const SizedBox(height: 12),
+                Text(
+                  '${_formatBytes(_sentBytes, 1)} / ${_formatBytes(_totalBytes, 1)} (${((_sentBytes / _totalBytes) * 100).toStringAsFixed(1)}%)',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black54,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _speedText,
+                      style: TextStyle(
+                        color: Colors.black.withOpacity(0.35),
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 10),
+                      width: 4,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withOpacity(0.1),
+                      ),
+                    ),
+                    Text(
+                      _etaText,
+                      style: TextStyle(
+                        color: Colors.black.withOpacity(0.35),
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
               ],
               const SizedBox(height: 8),
-              
+
               if (_errorMessage == null)
                 Text(
                   'Please do not close the app',
@@ -446,9 +576,9 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
                     style: const TextStyle(color: Colors.red, fontSize: 13),
                   ),
                 ),
-                
+
               const SizedBox(height: 60),
-              
+
               // Animated Step Indicators
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -456,19 +586,21 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
                   final stepNum = index + 1;
                   final isActive = _currentStep == stepNum;
                   final isDone = _currentStep > stepNum;
-                  
+
                   return Container(
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     height: 4,
                     width: isActive ? 40 : 20,
                     decoration: BoxDecoration(
-                      color: isDone ? Colors.black : (isActive ? Colors.black : Colors.black12),
+                      color: isDone
+                          ? Colors.black
+                          : (isActive ? Colors.black : Colors.black12),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   );
                 }),
               ),
-              
+
               if (_errorMessage != null) ...[
                 const SizedBox(height: 40),
                 SizedBox(
@@ -478,11 +610,16 @@ class _CaptureProgressPageState extends State<CaptureProgressPage> with TickerPr
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.black,
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                       elevation: 0,
                     ),
                     onPressed: () => Get.back(),
-                    child: const Text('GO BACK', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: const Text(
+                      'GO BACK',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
               ],

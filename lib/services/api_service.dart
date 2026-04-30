@@ -21,6 +21,22 @@ class ApiService {
     return 'http://$defaultIp:$defaultPort';
   }
 
+  static Future<Map<String, dynamic>> checkVersion(String version) async {
+    try {
+      final response = await _client().get(
+        '$baseUrl/app/version-check',
+        queryParameters: {'version': version},
+      );
+      if (response.statusCode == 200) {
+        return response.data;
+      }
+      return {'allowed': true}; // Fallback to allow if server has issues
+    } catch (e) {
+      print('❌ Version check failed: $e');
+      return {'allowed': true}; // Fallback to allow if server is unreachable
+    }
+  }
+
   static Dio _client() {
     _dio ??= Dio(
       BaseOptions(
@@ -28,7 +44,7 @@ class ApiService {
         sendTimeout: const Duration(minutes: 2),
         receiveTimeout: const Duration(seconds: 30),
         followRedirects: true,
-        validateStatus: (code) => code != null && code >= 200 && code < 500,
+        validateStatus: (code) => true, // Handle all status codes manually in _postWithRetry
       ),
     );
     return _dio!;
@@ -146,6 +162,21 @@ class ApiService {
     }
   }
 
+  // Get user profile by ID
+  static Future<Map<String, dynamic>> getUserProfile(int userId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/users/$userId'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load user profile');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+
   static Future<List<dynamic>> getUsersOnly({String? date}) async {
     try {
       final queryParams = {
@@ -203,6 +234,39 @@ class ApiService {
     }
   }
 
+  // Get permissions for a user
+  static Future<List<dynamic>> getPermissions(int userId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/permissions/$userId'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load permissions');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Request a permission
+  static Future<Map<String, dynamic>> requestPermission(Map<String, dynamic> data) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/permissions/apply'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(data),
+      );
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final error = json.decode(response.body);
+        throw Exception(error['error'] ?? 'Failed to request permission');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
   // Create attendance record with image upload (Dio — real-time progress)
   static Future<Map<String, dynamic>> createAttendance(
     Map<String, dynamic> attendanceData,
@@ -211,7 +275,8 @@ class ApiService {
     String? lang,
     String? site,
     void Function(int sent, int total)? onProgress,
-    int maxRetries = 0, // Set to 0 for non-idempotent operations to prevent duplicate uploads
+    int maxRetries =
+        0, // Set to 0 for non-idempotent operations to prevent duplicate uploads
   }) async {
     try {
       final formData = FormData.fromMap({
@@ -240,7 +305,18 @@ class ApiService {
         return response.data as Map<String, dynamic>;
       throw Exception('Failed to create attendance record: ${response.data}');
     } on DioException catch (e) {
-      throw Exception('Upload failed: ${e.response?.data ?? e.message}');
+      String errorMessage = 'Upload failed';
+      if (e.response != null && e.response!.data != null) {
+        final data = e.response!.data;
+        if (data is Map) {
+          errorMessage = data['error'] ?? data['message'] ?? data['msg'] ?? e.message ?? 'Unknown server error';
+        } else {
+          errorMessage = data.toString();
+        }
+      } else {
+        errorMessage = e.message ?? 'Connection failed';
+      }
+      throw Exception(errorMessage);
     } catch (e) {
       throw Exception('Network error: $e');
     }
@@ -256,7 +332,8 @@ class ApiService {
     String? lang,
     String? site,
     void Function(int sent, int total)? onProgress,
-    int maxRetries = 0, // Set to 0 for non-idempotent operations to prevent duplicate uploads
+    int maxRetries =
+        0, // Set to 0 for non-idempotent operations to prevent duplicate uploads
   }) async {
     try {
       final formData = FormData.fromMap({
@@ -285,7 +362,18 @@ class ApiService {
         return response.data as Map<String, dynamic>;
       throw Exception('Bulk attendance failed: ${response.data}');
     } on DioException catch (e) {
-      throw Exception('Upload failed: ${e.response?.data ?? e.message}');
+      String errorMessage = 'Bulk upload failed';
+      if (e.response != null && e.response!.data != null) {
+        final data = e.response!.data;
+        if (data is Map) {
+          errorMessage = data['error'] ?? data['message'] ?? data['msg'] ?? e.message ?? 'Unknown server error';
+        } else {
+          errorMessage = data.toString();
+        }
+      } else {
+        errorMessage = e.message ?? 'Connection failed';
+      }
+      throw Exception(errorMessage);
     } catch (e) {
       throw Exception('Network error: $e');
     }
@@ -313,50 +401,49 @@ class ApiService {
 
       if (response.statusCode == 200) {
         List<dynamic> allRecords = json.decode(response.body);
-        
+
         if (allRecords.isEmpty) return [];
 
-        // 1. Check for Today's records
         final todayRecords = allRecords.where((r) => r['date'] == dateStr).toList();
-        
-        // 2. Check for Yesterday's records
         final yesterdayRecords = allRecords.where((r) => r['date'] == yesterdayStr).toList();
 
-        // ── LOGIC 1: If we have an open check-in from Yesterday (Overnight) ──
-        // This is the most critical fix for the midnight button reset.
+        // ── Status-Aware Recent Shift Retrieval ──
+        
+        // 1. If today has records, use them
+        if (todayRecords.isNotEmpty) {
+          todayRecords.sort((a, b) => (a['s_no'] ?? 0).compareTo(b['s_no'] ?? 0));
+          return todayRecords;
+        }
+
+        // 2. If today is empty, check for an ACTIVE overnight shift from yesterday
         final openYesterday = yesterdayRecords.where((r) => r['s_no'] == 1).toList();
         final closedYesterday = yesterdayRecords.any((r) => r['s_no'] == 2);
 
-        if (todayRecords.isEmpty && openYesterday.isNotEmpty && !closedYesterday) {
-          print('🌙 Overnight shift detected: Found open check-in from yesterday.');
+        if (openYesterday.isNotEmpty && !closedYesterday) {
+          print('🌙 Overnight shift detected: Showing active check-in from yesterday.');
           return openYesterday;
         }
 
-        // ── LOGIC 2: If we have Today's records, show them ──
-        if (todayRecords.isNotEmpty) {
-          // If we have an s_no=2 that is marked as overnight (shift_date is today), 
-          // yet the 'date' is yesterday, we should find it.
-          // However, the backend logic for overnight checkout saves s_no=2 with date=Day1.
-          // So if todayRecords is empty but we just checked out a few minutes ago for an overnight shift...
-          // we need to see that record too.
-          return todayRecords.reversed.toList(); // Return in order (s_no 1 then 2)
-        }
+        // 3. If today is empty, check if we COMPLETED an overnight shift recently (today)
+        final completedOvernightToday = allRecords.where((r) {
+          if (r['s_no'] != 2 || r['is_overnight'] != 1) return false;
+          try {
+            final createdAt = DateTime.parse(r['created_at']).toLocal();
+            return createdAt.year == now.year && createdAt.month == now.month && createdAt.day == now.day;
+          } catch (_) { return false; }
+        }).toList();
 
-        // ── LOGIC 3: Check for very recent overnight checkout ──
-        // If today is empty, but the very latest record is an overnight checkout (s_no=2) 
-        // that belongs to yesterday's date, we show "Shift Complete" for the previous shift
-        // so the user doesn't see "Check In" immediately and get confused.
-        if (allRecords.isNotEmpty) {
-          final latest = allRecords.first; // Records are DESC by created_at
-          if (latest['s_no'] == 2 && latest['date'] == yesterdayStr && !closedYesterday) {
-             // Wait, closedYesterday check above would be true if s_no 2 exists.
+        if (completedOvernightToday.isNotEmpty) {
+          final checkout = completedOvernightToday.first;
+          final checkin = yesterdayRecords.firstWhere((r) => r['s_no'] == 1, orElse: () => null);
+          if (checkin != null) {
+            print('✅ Recently completed overnight shift found. Showing in status card.');
+            return [checkin, checkout]..sort((a, b) => (a['s_no'] as int).compareTo(b['s_no'] as int));
           }
-          
-          // Simplified: If today is empty, we show Yesterday's records ONLY if they are an open check-in.
-          // Otherwise, we show empty (Check In for Today).
         }
 
-        return todayRecords.reversed.toList();
+        return [];
+
       } else {
         throw Exception('Failed to load attendance records');
       }
@@ -926,7 +1013,7 @@ class ApiService {
   }
 
   // ── Vehicle Admin Endpoints ──────────────────────────────────────────────
-  
+
   static Future<Map<String, dynamic>> getAdminVehicleOverview() async {
     try {
       final response = await http.get(
@@ -959,8 +1046,13 @@ class ApiService {
         if (startDate != null) 'startDate': startDate,
         if (endDate != null) 'endDate': endDate,
       };
-      final uri = Uri.parse('$baseUrl/admin/vehicles/trips').replace(queryParameters: queryParams);
-      final response = await http.get(uri, headers: {'Content-Type': 'application/json'});
+      final uri = Uri.parse(
+        '$baseUrl/admin/vehicles/trips',
+      ).replace(queryParameters: queryParams);
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
       if (response.statusCode == 200) return json.decode(response.body);
       throw Exception('Failed to load admin trips');
     } catch (e) {
@@ -987,8 +1079,13 @@ class ApiService {
         if (startDate != null) 'startDate': startDate,
         if (endDate != null) 'endDate': endDate,
       };
-      final uri = Uri.parse('$baseUrl/admin/vehicles/fuel').replace(queryParameters: queryParams);
-      final response = await http.get(uri, headers: {'Content-Type': 'application/json'});
+      final uri = Uri.parse(
+        '$baseUrl/admin/vehicles/fuel',
+      ).replace(queryParameters: queryParams);
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
       if (response.statusCode == 200) return json.decode(response.body);
       throw Exception('Failed to load admin fuel logs');
     } catch (e) {
@@ -1015,8 +1112,9 @@ class ApiService {
   /// Get blocked days (Sundays + holidays) for a month (YYYY-MM)
   static Future<Map<String, dynamic>> getLeaveCalendar(String month) async {
     try {
-      final uri = Uri.parse('$baseUrl/leave/calendar')
-          .replace(queryParameters: {'month': month});
+      final uri = Uri.parse(
+        '$baseUrl/leave/calendar',
+      ).replace(queryParameters: {'month': month});
       final response = await http.get(
         uri,
         headers: {'Content-Type': 'application/json'},
@@ -1036,6 +1134,8 @@ class ApiService {
     required double elDays,
     required double clDays,
     String? reason,
+    int? approverId,
+    String session = 'full',
   }) async {
     try {
       final response = await http.post(
@@ -1048,6 +1148,8 @@ class ApiService {
           'el_days': elDays,
           'cl_days': clDays,
           if (reason != null && reason.isNotEmpty) 'reason': reason,
+          if (approverId != null) 'approver_id': approverId,
+          'session': session,
         }),
       );
       final data = json.decode(response.body);
@@ -1061,20 +1163,301 @@ class ApiService {
   /// Get leave requests for the logged-in employee
   static Future<List<dynamic>> getMyLeaveRequests(int userId) async {
     try {
-      final uri = Uri.parse('$baseUrl/leave/requests')
-          .replace(queryParameters: {'user_id': userId.toString()});
+      final uri = Uri.parse(
+        '$baseUrl/leave/requests',
+      ).replace(queryParameters: {'user_id': userId.toString()});
       final response = await http.get(
         uri,
         headers: {'Content-Type': 'application/json'},
       );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return data['data'] ?? [];
+        return data['data'] as List<dynamic>;
       }
       throw Exception('Failed to load leave requests');
     } catch (e) {
       throw Exception('Network error: $e');
     }
   }
-}
 
+  /// Update a pending leave request
+  static Future<Map<String, dynamic>> updateLeaveRequest({
+    required int requestId,
+    required String fromDate,
+    required String toDate,
+    required double elDays,
+    required double clDays,
+    String? reason,
+    String session = 'full',
+  }) async {
+    try {
+      final response = await http.patch(
+        Uri.parse('$baseUrl/leave/requests/$requestId'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'from_date': fromDate,
+          'to_date': toDate,
+          'el_days': elDays,
+          'cl_days': clDays,
+          'reason': reason,
+          'session': session,
+        }),
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception(
+        json.decode(response.body)['error'] ?? 'Failed to update leave request',
+      );
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Delete a pending leave request
+  static Future<Map<String, dynamic>> deleteLeaveRequest(int requestId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/leave/requests/$requestId'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception(
+        json.decode(response.body)['error'] ?? 'Failed to delete leave request',
+      );
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Get all employees and their assigned approvers
+  static Future<List<dynamic>> getHierarchy() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/admin/hierarchy'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['data'] as List<dynamic>;
+      }
+      throw Exception('Failed to load hierarchy');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Assign one or more approvers to an employee
+  static Future<Map<String, dynamic>> assignApprovers(int employeeId, List<int> approverIds) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/admin/assign-approvers'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'employee_ids': [employeeId],
+          'approver_ids': approverIds,
+        }),
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to assign approvers');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Bulk assign the same group of approvers to multiple employees
+  static Future<Map<String, dynamic>> bulkAssignApprovers(List<int> employeeIds, List<int> approverIds) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/admin/assign-approvers'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'employee_ids': employeeIds,
+          'approver_ids': approverIds,
+        }),
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to bulk assign approvers');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Get users who can be approvers (admins/managers)
+  static Future<List<dynamic>> getPotentialApprovers() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/admin/potential-approvers'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['data'] as List<dynamic>;
+      }
+      throw Exception('Failed to load potential approvers');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Get fixed approvers assigned to an employee
+  static Future<List<dynamic>> getUserApprovers(int userId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/users/$userId/approvers'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['data'] as List<dynamic>;
+      }
+      throw Exception('Failed to load user approvers');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Get leave requests for Admin/Manager view
+  static Future<List<dynamic>> getAdminLeaveRequests({
+    String? status,
+    int? userId,
+    int? approverId,
+    int page = 1,
+    int limit = 50,
+  }) async {
+    try {
+      final queryParams = {
+        if (status != null) 'status': status,
+        if (userId != null) 'user_id': userId.toString(),
+        if (approverId != null) 'approver_id': approverId.toString(),
+        'page': page.toString(),
+        'limit': limit.toString(),
+      };
+      final uri = Uri.parse(
+        '$baseUrl/leave/requests',
+      ).replace(queryParameters: queryParams);
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['data'] as List<dynamic>;
+      }
+      throw Exception('Failed to load admin leave requests');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Get permission requests for Admin/Manager view
+  static Future<List<dynamic>> getAdminPermissionRequests({
+    String? status,
+    int? approverId,
+  }) async {
+    try {
+      final queryParams = {
+        if (status != null) 'status': status,
+        if (approverId != null) 'approver_id': approverId.toString(),
+      };
+      final uri = Uri.parse(
+        '$baseUrl/permissions/admin/all',
+      ).replace(queryParameters: queryParams);
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as List<dynamic>;
+      }
+      throw Exception('Failed to load admin permission requests');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+  
+  /// Approve or reject a leave request
+  static Future<Map<String, dynamic>> reviewLeaveRequest({
+    required int requestId,
+    required String status,
+    required int reviewedBy,
+    String? adminNote,
+  }) async {
+    try {
+      final response = await http.patch(
+        Uri.parse('$baseUrl/leave/review/$requestId'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'status': status,
+          'reviewed_by': reviewedBy,
+          if (adminNote != null) 'admin_note': adminNote,
+        }),
+      );
+      if (response.statusCode == 200) {
+        try {
+          return json.decode(response.body);
+        } catch (e) {
+          throw Exception('Failed to parse server response: ${response.body}');
+        }
+      }
+      
+      String errorMsg = 'Failed to review leave request';
+      try {
+        if (response.body.trim().startsWith('{')) {
+          final data = json.decode(response.body);
+          errorMsg = data['error'] ?? errorMsg;
+        } else if (response.body.contains('<!DOCTYPE html>')) {
+          errorMsg = 'Server error (HTML). The endpoint might be incorrect or the server crashed.';
+        }
+      } catch (_) {
+        errorMsg = 'Server returned status ${response.statusCode}';
+      }
+      
+      throw Exception(errorMsg);
+    } catch (e) {
+      if (e is Exception && !e.toString().contains('Network error:')) throw e;
+      throw Exception('Network error: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>> reviewPermissionRequest({
+    required int requestId,
+    required String status,
+    required int reviewedBy,
+    String? adminNote,
+  }) async {
+    try {
+      final response = await http.patch(
+        Uri.parse('$baseUrl/permissions/review/$requestId'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'status': status,
+          'reviewed_by': reviewedBy,
+          if (adminNote != null) 'admin_note': adminNote,
+        }),
+      );
+      if (response.statusCode == 200) {
+        try {
+          return json.decode(response.body);
+        } catch (e) {
+          throw Exception('Failed to parse server response: ${response.body}');
+        }
+      }
+      
+      String errorMsg = 'Failed to review permission request';
+      try {
+        if (response.body.trim().startsWith('{')) {
+          final data = json.decode(response.body);
+          errorMsg = data['error'] ?? errorMsg;
+        } else if (response.body.contains('<!DOCTYPE html>')) {
+          errorMsg = 'Server error (HTML). The endpoint might be incorrect or the server crashed.';
+        }
+      } catch (_) {
+        errorMsg = 'Server returned status ${response.statusCode}';
+      }
+      
+      throw Exception(errorMsg);
+    } catch (e) {
+      if (e is Exception && !e.toString().contains('Network error:')) throw e;
+      throw Exception('Network error: $e');
+    }
+  }
+}

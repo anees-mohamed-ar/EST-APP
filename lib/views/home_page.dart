@@ -14,6 +14,7 @@ import 'employee_selection_page.dart';
 import 'camera_page.dart';
 import 'settings_page.dart';
 import 'daily_attendance_page.dart';
+import 'review_page.dart';
 import '../widgets/electric_refresh_indicator.dart';
 
 class HomePage extends StatefulWidget {
@@ -44,6 +45,11 @@ class _HomePageState extends State<HomePage>
   // Sites data
   List<dynamic> sites = [];
   bool isLoadingSites = true;
+
+  // Approval badge counts
+  int _pendingLeaveCount = 0;
+  int _pendingPermissionCount = 0;
+  bool _isLoadingApprovalCounts = true;
 
   // Upload progress: null = idle, 0.0–1.0 = uploading
   double? _uploadProgress;
@@ -105,6 +111,7 @@ class _HomePageState extends State<HomePage>
     _loadMonthlyAttendance();
     _loadMonthlyPerformance();
     _loadSites();
+    _loadApprovalCounts();
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
@@ -205,6 +212,27 @@ class _HomePageState extends State<HomePage>
     super.dispose();
   }
 
+  Future<void> _loadUserProfile() async {
+    try {
+      final userData = storage.read('user');
+      if (userData == null) return;
+
+      final updatedProfile = await ApiService.getUserProfile(userData['id']);
+      if (updatedProfile != null) {
+        // Merge with existing storage data to preserve local session fields if any
+        final Map<String, dynamic> mergedData = Map<String, dynamic>.from(
+          userData,
+        );
+        mergedData.addAll(updatedProfile);
+
+        await storage.write('user', mergedData);
+        if (mounted) setState(() {}); // Trigger rebuild to update drawer
+      }
+    } catch (e) {
+      debugPrint('❌ Error refreshing user profile: $e');
+    }
+  }
+
   Future<void> _loadTodayAttendance() async {
     setState(() => isLoadingAttendance = true);
     try {
@@ -287,6 +315,58 @@ class _HomePageState extends State<HomePage>
       }
     } catch (e) {
       if (mounted) setState(() => isLoadingSites = false);
+    }
+  }
+
+  Future<void> _loadApprovalCounts() async {
+    setState(() => _isLoadingApprovalCounts = true);
+    try {
+      final user = storage.read('user');
+      if (user == null) {
+        if (mounted) setState(() => _isLoadingApprovalCounts = false);
+        return;
+      }
+
+      final acceptAccess = user['accept_access'] as int?;
+      final userId = user['id'] as int?;
+      final role = user['role'] as String?;
+
+      // Only load counts for users with accept_access
+      if (acceptAccess != 1) {
+        if (mounted) setState(() => _isLoadingApprovalCounts = false);
+        return;
+      }
+
+      final effectiveApproverId = role != 'admin' ? userId : null;
+
+      final [leaves, permissions] = await Future.wait([
+        ApiService.getAdminLeaveRequests(
+          status: 'pending',
+          approverId: effectiveApproverId,
+          limit: 100,
+        ),
+        ApiService.getAdminPermissionRequests(
+          status: 'pending',
+          approverId: effectiveApproverId,
+        ),
+      ]);
+
+      print(
+        'DEBUG HOME: role=$role, userId=$userId, effectiveApproverId=$effectiveApproverId',
+      );
+      print(
+        'DEBUG HOME: Pending leaves: ${leaves.length}, Pending permissions: ${permissions.length}',
+      );
+
+      if (mounted) {
+        setState(() {
+          _pendingLeaveCount = leaves.length;
+          _pendingPermissionCount = permissions.length;
+          _isLoadingApprovalCounts = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingApprovalCounts = false);
     }
   }
 
@@ -816,6 +896,7 @@ class _HomePageState extends State<HomePage>
                     Get.toNamed('/holidays');
                   },
                 ),
+                //TODO: Re-enable when leave feature is ready
                 ListTile(
                   leading: const Icon(
                     Icons.event_note_outlined,
@@ -835,6 +916,26 @@ class _HomePageState extends State<HomePage>
                     Get.toNamed('/leave');
                   },
                 ),
+                if (userData['is_ot_eligible'] == 0)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.timer_outlined,
+                      color: _charcoal,
+                      size: 24,
+                    ),
+                    title: const Text(
+                      'Request Permission',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _charcoal,
+                      ),
+                    ),
+                    onTap: () {
+                      Get.back();
+                      Get.toNamed('/permission');
+                    },
+                  ),
                 ListTile(
                   leading: const Icon(
                     Icons.leaderboard_outlined,
@@ -872,6 +973,59 @@ class _HomePageState extends State<HomePage>
                     onTap: () {
                       Get.back();
                       Get.toNamed('/vehicle');
+                    },
+                  ),
+                if (userData['accept_access'] == 1)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.fact_check_outlined,
+                      color: _charcoal,
+                      size: 24,
+                    ),
+                    title: const Text(
+                      'Approvals',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _charcoal,
+                      ),
+                    ),
+                    trailing: _isLoadingApprovalCounts
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: _charcoal,
+                            ),
+                          )
+                        : (_pendingLeaveCount + _pendingPermissionCount) > 0
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _softRed,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${_pendingLeaveCount + _pendingPermissionCount}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          )
+                        : null,
+                    onTap: () async {
+                      Get.back();
+                      await Get.to(() => const ReviewPage());
+                      if (mounted) {
+                        await Future.delayed(const Duration(milliseconds: 300));
+                        await _loadApprovalCounts();
+                      }
                     },
                   ),
                 ListTile(
@@ -936,10 +1090,33 @@ class _HomePageState extends State<HomePage>
     final greeting = _getGreeting(now.hour);
     final name = (userData['username'] ?? 'User').toString();
     final role = (userData['role'] ?? 'Single User').toString();
-    final hasCheckedIn = todaysRecords.isNotEmpty;
-    final hasCheckedOut = todaysRecords.length >= 2;
-    final firstIn = hasCheckedIn ? todaysRecords.first['time'] : null;
-    final lastOut = hasCheckedOut ? todaysRecords.last['time'] : null;
+    final todayDateStr = DateFormat('yyyy-MM-dd').format(now);
+
+    // Check if there is an active shift (Check-In exists without a Check-Out)
+    // This handles both today's check-in and an overnight check-in from yesterday.
+    final hasActiveShift = todaysRecords.length == 1;
+
+    // Check if today's specific shift is complete
+    final hasCheckedInToday = todaysRecords.any(
+      (r) => r['date'] == todayDateStr,
+    );
+    final hasCheckedOutToday =
+        todaysRecords.where((r) => r['date'] == todayDateStr).length >= 2;
+
+    // For the button toggle logic:
+    // 1. If today is complete, show "Shift Recorded"
+    // 2. If there's an active shift (today or overnight), show "Check Out"
+    // 3. Else, show "Check In"
+    final hasCheckedIn = hasActiveShift;
+    final hasCheckedOut = hasCheckedOutToday;
+
+    // Status card specifically shows the current records (even if overnight)
+    final cardHasCheckedIn = todaysRecords.isNotEmpty;
+    final cardHasCheckedOut = todaysRecords.length >= 2;
+    final firstIn = cardHasCheckedIn ? todaysRecords.first['time'] : null;
+    final lastOut = cardHasCheckedOut ? todaysRecords.last['time'] : null;
+    final firstInDate = cardHasCheckedIn ? todaysRecords.first['date'] : null;
+    final lastOutDate = cardHasCheckedOut ? todaysRecords.last['date'] : null;
 
     return WillPopScope(
       onWillPop: () async {
@@ -957,10 +1134,12 @@ class _HomePageState extends State<HomePage>
             ElectricRefreshIndicator(
               onRefresh: () async {
                 await Future.wait([
+                  _loadUserProfile(),
                   _loadTodayAttendance(),
                   _loadMonthlyAttendance(),
                   _loadMonthlyPerformance(),
                   _loadSites(),
+                  _loadApprovalCounts(),
                 ]);
               },
               color: _charcoal,
@@ -975,8 +1154,54 @@ class _HomePageState extends State<HomePage>
                     pinned: true,
                     backgroundColor: _pureWhite,
                     elevation: 0,
-                    automaticallyImplyLeading: true,
+                    automaticallyImplyLeading: false,
                     iconTheme: const IconThemeData(color: _charcoal),
+                    leading: Builder(
+                      builder: (context) {
+                        final totalApprovals =
+                            _pendingLeaveCount + _pendingPermissionCount;
+                        final acceptAccess =
+                            userData['accept_access'] == 1 ||
+                            userData['accept_access'] == true;
+
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.menu_rounded),
+                              color: _charcoal,
+                              onPressed: () =>
+                                  Scaffold.of(context).openDrawer(),
+                            ),
+                            if (acceptAccess &&
+                                !_isLoadingApprovalCounts &&
+                                totalApprovals > 0)
+                              Positioned(
+                                right: 6,
+                                top: 8,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _softRed,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    '$totalApprovals',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
                     title: const Text(
                       'MEPL-Track',
                       style: TextStyle(
@@ -1016,10 +1241,12 @@ class _HomePageState extends State<HomePage>
                           _buildProfileCard(greeting, name, role, now),
                           const SizedBox(height: 24),
                           _buildStatusCard(
-                            hasCheckedIn,
-                            hasCheckedOut,
+                            cardHasCheckedIn,
+                            cardHasCheckedOut,
                             firstIn,
                             lastOut,
+                            firstInDate,
+                            lastOutDate,
                           ),
                           const SizedBox(height: 24),
 
@@ -1030,7 +1257,10 @@ class _HomePageState extends State<HomePage>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(
-                                child: _buildCheckInButton(hasCheckedOut),
+                                child: _buildCheckInButton(
+                                  hasCheckedIn,
+                                  hasCheckedOut,
+                                ),
                               ),
                               const SizedBox(width: 12),
                               if ((userData['role']?.toString().toLowerCase() ==
@@ -1063,33 +1293,52 @@ class _HomePageState extends State<HomePage>
                             Row(
                               children: [
                                 Expanded(
-                                  child: Container(
-                                    height: 140,
-                                    child: _buildActionCard(
-                                      icon: Icons.admin_panel_settings_outlined,
-                                      label: 'Admin Panel',
-                                      sublabel: 'Manage attendance',
-                                      onTap: () =>
-                                          Get.toNamed('/admin-attendance'),
-                                    ),
+                                  child: _buildActionCard(
+                                    icon: Icons.admin_panel_settings_outlined,
+                                    label: 'Admin Panel',
+                                    sublabel: 'Manage attendance',
+                                    onTap: () =>
+                                        Get.toNamed('/admin-attendance'),
                                   ),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
-                                  child: Container(
-                                    height: 140,
-                                    child: _buildActionCard(
-                                      icon: Icons.directions_car_outlined,
-                                      label: 'Vehicle Reports',
-                                      sublabel: 'Trips & Fuel logs',
-                                      onTap: () =>
-                                          Get.toNamed('/fleet-reports'),
-                                    ),
+                                  child: _buildActionCard(
+                                    icon: Icons.directions_car_outlined,
+                                    label: 'Vehicle Reports',
+                                    sublabel: 'Trips & Fuel logs',
+                                    onTap: () => Get.toNamed('/fleet-reports'),
                                   ),
                                 ),
                               ],
                             ),
                           ],
+
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildActionCard(
+                                  icon: Icons.beach_access_outlined,
+                                  label: 'Leaves',
+                                  sublabel: 'Request Day off',
+                                  onTap: () => Get.toNamed('/leave'),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              if (userData['is_ot_eligible'] == 0)
+                                Expanded(
+                                  child: _buildActionCard(
+                                    icon: Icons.timer_outlined,
+                                    label: 'Permissions',
+                                    sublabel: 'Request 3hr permission',
+                                    onTap: () => Get.toNamed('/permission'),
+                                  ),
+                                )
+                              else
+                                Expanded(child: Container()),
+                            ],
+                          ),
 
                           const SizedBox(height: 24),
 
@@ -1255,10 +1504,17 @@ class _HomePageState extends State<HomePage>
         ),
       );
     }
+    double _safeNum(dynamic val) {
+      if (val == null) return 0.0;
+      if (val is num) return val.toDouble();
+      if (val is String) return double.tryParse(val) ?? 0.0;
+      return 0.0;
+    }
+
     final totalWorked = formatted['total_regular'] ?? '0h 0m';
     final totalOT = formatted['total_overtime'] ?? '0h 0m';
-    final completeDays = attendance['total_complete_days'] ?? 0;
-    final presentDays = attendance['total_days_present'] ?? 0;
+    final completeDays = _safeNum(attendance['total_complete_days']);
+    final presentDays = _safeNum(attendance['total_days_present']);
 
     // Check if there's actually no data (no complete days, no regular time, no OT, and no check-ins)
     final hasNoData =
@@ -1881,10 +2137,20 @@ class _HomePageState extends State<HomePage>
                     ),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [_pureBlack, _mediumGray, _pureBlack],
-                        stops: const [0.0, 0.5, 1.0],
-                        begin: Alignment(v - 0.35, 0),
-                        end: Alignment(v + 0.35, 0),
+                        colors: [
+                          _pureBlack,
+                          const Color(
+                            0xFF444444,
+                          ), // Further increased visibility
+                          _pureBlack,
+                        ],
+                        stops: const [
+                          0.2,
+                          0.5,
+                          0.8,
+                        ], // Wider band for better shimmer presence
+                        begin: Alignment(v - 0.6, -0.2),
+                        end: Alignment(v + 0.6, 0.2),
                       ),
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
@@ -1932,6 +2198,8 @@ class _HomePageState extends State<HomePage>
     bool hasCheckedOut,
     String? firstIn,
     String? lastOut,
+    String? firstInDate,
+    String? lastOutDate,
   ) {
     return RepaintBoundary(
       child: Container(
@@ -1974,10 +2242,21 @@ class _HomePageState extends State<HomePage>
                   ),
                   child: Row(
                     children: [
-                      if (todaysRecords.isNotEmpty && todaysRecords.any((r) => r['is_overnight'] == 1 || r['date'] != DateFormat('yyyy-MM-dd').format(DateTime.now())))
+                      if (todaysRecords.isNotEmpty &&
+                          todaysRecords.any(
+                            (r) =>
+                                r['is_overnight'] == 1 ||
+                                r['date'] !=
+                                    DateFormat(
+                                      'yyyy-MM-dd',
+                                    ).format(DateTime.now()),
+                          ))
                         Container(
                           margin: const EdgeInsets.only(right: 6),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: _softRed.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(4),
@@ -2030,6 +2309,14 @@ class _HomePageState extends State<HomePage>
                     firstIn,
                     Icons.login_outlined,
                     _softGreen,
+                    subtitle:
+                        firstInDate != null &&
+                            firstInDate !=
+                                DateFormat('yyyy-MM-dd').format(DateTime.now())
+                        ? DateFormat(
+                            'dd MMM',
+                          ).format(DateTime.parse(firstInDate))
+                        : null,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -2039,6 +2326,14 @@ class _HomePageState extends State<HomePage>
                     lastOut,
                     Icons.logout_outlined,
                     _softRed,
+                    subtitle:
+                        lastOutDate != null &&
+                            lastOutDate !=
+                                DateFormat('yyyy-MM-dd').format(DateTime.now())
+                        ? DateFormat(
+                            'dd MMM',
+                          ).format(DateTime.parse(lastOutDate))
+                        : null,
                   ),
                 ),
               ],
@@ -2053,8 +2348,9 @@ class _HomePageState extends State<HomePage>
     String label,
     String? time,
     IconData icon,
-    Color color,
-  ) {
+    Color color, {
+    String? subtitle,
+  }) {
     final hasTime = time != null;
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2084,12 +2380,23 @@ class _HomePageState extends State<HomePage>
               color: hasTime ? color : _mediumGray,
             ),
           ),
+          if (hasTime && subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w400,
+                color: color.withOpacity(0.7),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildCheckInButton(bool hasCheckedOut) {
+  Widget _buildCheckInButton(bool hasCheckedIn, bool hasCheckedOut) {
     if (!_isLocationEnabled) {
       return GestureDetector(
         onTap: () async {
@@ -2201,12 +2508,12 @@ class _HomePageState extends State<HomePage>
     }
 
     // Protect against double clicks by showing a "Checked In Successfully" block
-    if (hasRecord) {
+    if (hasCheckedIn) {
       final firstIn = todaysRecords.last['time'];
       if (firstIn != null) {
         try {
           final now = DateTime.now();
-// Handle the timer logic using the record's actual date
+          // Handle the timer logic using the record's actual date
           final recordDate = todaysRecords.last['date'];
           final inTime = DateTime.parse('$recordDate $firstIn');
           final int elapsedSeconds = now.difference(inTime).inSeconds;
@@ -2273,10 +2580,54 @@ class _HomePageState extends State<HomePage>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(
-                            Icons.check_circle,
-                            size: 44,
-                            color: _pureWhite,
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 1200),
+                            transitionBuilder:
+                                (Widget child, Animation<double> animation) {
+                                  // Use the raw animation but with an easeInOut curve for the rotation
+                                  final rotate =
+                                      Tween<double>(
+                                        begin: math.pi,
+                                        end: 0.0,
+                                      ).animate(
+                                        CurvedAnimation(
+                                          parent: animation,
+                                          curve: Curves.easeInOut,
+                                        ),
+                                      );
+
+                                  return AnimatedBuilder(
+                                    animation: animation,
+                                    child: child,
+                                    builder: (context, child) {
+                                      // Avoid "merging" icons by only showing the one that is on the "front" side
+                                      if (animation.value < 0.5) {
+                                        return const SizedBox.shrink();
+                                      }
+
+                                      return Transform(
+                                        transform: Matrix4.identity()
+                                          ..setEntry(3, 2, 0.002) // perspective
+                                          ..rotateY(rotate.value),
+                                        alignment: Alignment.center,
+                                        child: child,
+                                      );
+                                    },
+                                  );
+                                },
+                            child: (remainingSeconds ~/ 2) % 2 == 0
+                                ? const Icon(
+                                    Icons.check_circle,
+                                    key: ValueKey('check'),
+                                    size: 44,
+                                    color: _pureWhite,
+                                  )
+                                : const Icon(
+                                    Icons.lock,
+                                    key: ValueKey('lock'),
+                                    size: 44,
+                                    color: _pureWhite,
+                                  ),
                           ),
                           const SizedBox(height: 8),
                           const Text(
@@ -2331,12 +2682,12 @@ class _HomePageState extends State<HomePage>
     }
 
     // ── State 1 & 2: Check In / Check Out ──────────────────────────────────
-    final buttonLabel = hasRecord ? 'Check Out' : 'Check In';
-    final buttonColor = hasRecord ? _softRed : _softGreen;
-    final iconData = hasRecord
+    final buttonLabel = hasCheckedIn ? 'Check Out' : 'Check In';
+    final buttonColor = hasCheckedIn ? _softRed : _softGreen;
+    final iconData = hasCheckedIn
         ? Icons.logout_rounded
         : Icons.photo_camera_rounded;
-    final String instruction = hasRecord
+    final String instruction = hasCheckedIn
         ? 'Tap when leaving'
         : 'Tap to start work';
 
@@ -2958,15 +3309,23 @@ class _HomePageState extends State<HomePage>
               Color bgColor;
               Color textColor;
               bool isPresent = false;
+              bool isLeave = record != null && record['day_status'] == 'leave';
 
               if (isFuture) {
                 bgColor = _offWhite;
                 textColor = _mediumGray;
               } else {
                 if (record != null && record['is_present'] == true) {
-                  bgColor = _softGreen.withOpacity(0.15);
-                  textColor = _softGreen;
-                  isPresent = true;
+                  if (isLeave) {
+                    bgColor = Colors.orange.withOpacity(0.15);
+                    textColor = Colors.orange;
+                    isPresent =
+                        true; // Still counts for streak but styled differently
+                  } else {
+                    bgColor = _softGreen.withOpacity(0.15);
+                    textColor = _softGreen;
+                    isPresent = true;
+                  }
                 } else {
                   bgColor = _softRed.withOpacity(0.1);
                   textColor = _softRed;
@@ -3445,153 +3804,160 @@ class _HomePageState extends State<HomePage>
       if (_isNavigatingToCamera) return;
 
       String? chosenSite;
-      if (sites.isNotEmpty) {
-        String searchQuery = '';
-        bool searchById = false;
-        final searchCtrl = TextEditingController();
-        chosenSite = await showModalBottomSheet<String>(
-          context: context,
-          backgroundColor: Colors.transparent,
-          isScrollControlled: true,
-          builder: (ctx) {
-            return StatefulBuilder(
-              builder: (ctx, setStateBtm) {
-                final query = searchQuery.toLowerCase().trim();
+      if (!hasRecord) {
+        // --- CHECK-IN FLOW: Site is mandatory ---
+        if (sites.isNotEmpty) {
+          String searchQuery = '';
+          bool searchById = false;
+          final searchCtrl = TextEditingController();
+          chosenSite = await showModalBottomSheet<String>(
+            context: context,
+            backgroundColor: Colors.transparent,
+            isScrollControlled: true,
+            builder: (ctx) {
+              return StatefulBuilder(
+                builder: (ctx, setStateBtm) {
+                  final query = searchQuery.toLowerCase().trim();
 
-                final filteredSites = sites.where((s) {
-                  if (query.isEmpty) return true;
-                  if (searchById) {
-                    final siteId = (s['site_id']?.toString() ?? '')
-                        .toLowerCase();
-                    return siteId.startsWith(query);
-                  } else {
-                    final siteName = (s['site_name']?.toString() ?? '')
-                        .toLowerCase();
-                    return siteName.contains(query);
+                  final filteredSites = sites.where((s) {
+                    if (query.isEmpty) return true;
+                    if (searchById) {
+                      final siteId = (s['site_id']?.toString() ?? '')
+                          .toLowerCase();
+                      return siteId.startsWith(query);
+                    } else {
+                      final siteName = (s['site_name']?.toString() ?? '')
+                          .toLowerCase();
+                      return siteName.contains(query);
+                    }
+                  }).toList();
+
+                  if (searchById && query.isNotEmpty) {
+                    filteredSites.sort((a, b) {
+                      final idA = (a['site_id']?.toString() ?? '')
+                          .toLowerCase();
+                      final idB = (b['site_id']?.toString() ?? '')
+                          .toLowerCase();
+                      if (idA == query && idB != query) return -1;
+                      if (idB == query && idA != query) return 1;
+                      return idA.compareTo(idB);
+                    });
                   }
-                }).toList();
 
-                if (searchById && query.isNotEmpty) {
-                  filteredSites.sort((a, b) {
-                    final idA = (a['site_id']?.toString() ?? '').toLowerCase();
-                    final idB = (b['site_id']?.toString() ?? '').toLowerCase();
-                    if (idA == query && idB != query) return -1;
-                    if (idB == query && idA != query) return 1;
-                    return idA.compareTo(idB);
-                  });
-                }
-
-                Widget _buildToggleBtn(bool isId, String label) {
-                  final active = searchById == isId;
-                  return Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        setStateBtm(() {
-                          searchById = isId;
-                          searchQuery = '';
-                          searchCtrl.clear();
-                        });
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        decoration: BoxDecoration(
-                          color: active ? _charcoal : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: active ? _charcoal : _lightGray,
-                          ),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          label,
-                          style: TextStyle(
-                            color: active ? _pureWhite : _mediumGray,
-                            fontWeight: active
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                }
-
-                return Container(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.8,
-                  ),
-                  decoration: const BoxDecoration(
-                    color: _pureWhite,
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(24),
-                    ),
-                  ),
-                  padding: EdgeInsets.only(
-                    top: 24,
-                    left: 16,
-                    right: 16,
-                    bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Select Site for Check-in',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: _charcoal,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          _buildToggleBtn(false, 'By Name'),
-                          const SizedBox(width: 8),
-                          _buildToggleBtn(true, 'By ID'),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: searchCtrl,
-                        decoration: InputDecoration(
-                          hintText: searchById
-                              ? 'Search by Site ID'
-                              : 'Search by Site Name',
-                          prefixIcon: const Icon(
-                            Icons.search,
-                            color: _charcoal,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: _lightGray),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: _charcoal),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 0,
-                            horizontal: 16,
-                          ),
-                        ),
-                        onChanged: (val) {
+                  Widget _buildToggleBtn(bool isId, String label) {
+                    final active = searchById == isId;
+                    return Expanded(
+                      child: GestureDetector(
+                        onTap: () {
                           setStateBtm(() {
-                            searchQuery = val;
+                            searchById = isId;
+                            searchQuery = '';
+                            searchCtrl.clear();
                           });
                         },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: active ? _charcoal : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: active ? _charcoal : _lightGray,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              color: active ? _pureWhite : _mediumGray,
+                              fontWeight: active
+                                  ? FontWeight.w600
+                                  : FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 16),
-                      Flexible(
-                        child: ListView.separated(
+                    );
+                  }
+
+                  return Container(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.8,
+                    ),
+                    decoration: const BoxDecoration(
+                      color: _pureWhite,
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(24),
+                      ),
+                    ),
+                    padding: EdgeInsets.only(
+                      top: 24,
+                      left: 16,
+                      right: 16,
+                      bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Select Site for Check-in',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: _charcoal,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            _buildToggleBtn(false, 'By Name'),
+                            const SizedBox(width: 8),
+                            _buildToggleBtn(true, 'By ID'),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: searchCtrl,
+                          decoration: InputDecoration(
+                            hintText: searchById
+                                ? 'Search by Site ID'
+                                : 'Search by Site Name',
+                            prefixIcon: const Icon(
+                              Icons.search,
+                              color: _charcoal,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: _lightGray),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: _charcoal),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 0,
+                              horizontal: 16,
+                            ),
+                          ),
+                          onChanged: (val) {
+                            setStateBtm(() {
+                              searchQuery = val;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        Flexible(
+                          child: ListView.separated(
                             shrinkWrap: true,
-                            itemCount: filteredSites.isEmpty ? 1 : filteredSites.length + 1,
+                            itemCount: filteredSites.isEmpty
+                                ? 1
+                                : filteredSites.length + 1,
                             separatorBuilder: (_, __) =>
                                 const Divider(color: _lightGray),
                             itemBuilder: (ctx, i) {
                               // "Others" tile — always shown as the last item
-                              if (filteredSites.isEmpty || i == filteredSites.length) {
+                              if (filteredSites.isEmpty ||
+                                  i == filteredSites.length) {
                                 return ListTile(
                                   leading: const Icon(
                                     Icons.edit_location_alt_outlined,
@@ -3607,7 +3973,10 @@ class _HomePageState extends State<HomePage>
                                   ),
                                   subtitle: const Text(
                                     'Specify a custom site',
-                                    style: TextStyle(fontSize: 11, color: _mediumGray),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: _mediumGray,
+                                    ),
                                   ),
                                   onTap: () async {
                                     final otherCtrl = TextEditingController();
@@ -3619,7 +3988,8 @@ class _HomePageState extends State<HomePage>
                                         content: TextField(
                                           controller: otherCtrl,
                                           autofocus: true,
-                                          textCapitalization: TextCapitalization.words,
+                                          textCapitalization:
+                                              TextCapitalization.words,
                                           decoration: const InputDecoration(
                                             hintText: 'Enter site name',
                                             border: OutlineInputBorder(),
@@ -3627,7 +3997,8 @@ class _HomePageState extends State<HomePage>
                                         ),
                                         actions: [
                                           TextButton(
-                                            onPressed: () => Navigator.pop(dCtx),
+                                            onPressed: () =>
+                                                Navigator.pop(dCtx),
                                             child: const Text('Cancel'),
                                           ),
                                           ElevatedButton(
@@ -3683,20 +4054,71 @@ class _HomePageState extends State<HomePage>
                                     ),
                                   ),
                                 ),
-                                onTap: () =>
-                                    Navigator.pop(ctx, s['site_name']),
+                                onTap: () => Navigator.pop(ctx, s['site_name']),
                               );
                             },
                           ),
-                      ),
-                    ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          );
+          if (chosenSite == null) return; // cancelled check-in
+        } else {
+          // --- SITES LIST IS EMPTY: Force manual entry for check-in ---
+          final otherCtrl = TextEditingController();
+          chosenSite = await showDialog<String>(
+            context: context,
+            barrierDismissible: false,
+            builder: (dCtx) => AlertDialog(
+              title: const Text('Specify Site'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'No predefined sites found. Please enter your current site name to check-in.',
                   ),
-                );
-              },
-            );
-          },
-        );
-        if (chosenSite == null) return; // cancelled checkin
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: otherCtrl,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      hintText: 'Enter site name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dCtx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _charcoal,
+                    foregroundColor: _pureWhite,
+                  ),
+                  onPressed: () {
+                    final val = otherCtrl.text.trim();
+                    if (val.isNotEmpty) {
+                      Navigator.pop(dCtx, val);
+                    }
+                  },
+                  child: const Text('Confirm'),
+                ),
+              ],
+            ),
+          );
+          if (chosenSite == null) return; // cancelled check-in
+        }
+      } else {
+        // --- CHECK-OUT FLOW: No site picker needed (backend inherits site) ---
+        chosenSite = null;
       }
 
       _isNavigatingToCamera = true;
@@ -3888,7 +4310,89 @@ class _HomePageState extends State<HomePage>
   }
 
   void _showLocationErrorDialog(String error) {
-    if (error.contains('LOCATION_REQUIRED') || error.contains('location')) {
+    if (error.contains('DATE_MISMATCH')) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.date_range, size: 32, color: Colors.red),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Date Mismatch',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Your device date is not synchronized with the server.',
+                  style: TextStyle(fontSize: 18, height: 1.5),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Please correct your device date and time settings and try again.',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                    height: 1.4,
+                  ),
+                ),
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange[300]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange[700]),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Go to Settings > Date & Time to fix this issue.',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: Colors.orange[900],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+    } else if (error.contains('LOCATION_REQUIRED') ||
+        error.contains('location')) {
       showDialog(
         context: context,
         barrierDismissible: false,

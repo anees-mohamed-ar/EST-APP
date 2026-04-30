@@ -21,6 +21,8 @@ import 'views/profile_page.dart';
 import 'views/vehicle_page.dart';
 import 'views/admin_vehicle_reports_page.dart';
 import 'views/leave_page.dart';
+import 'views/permission_page.dart';
+import 'views/hierarchy_management_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -90,6 +92,8 @@ class MyApp extends StatelessWidget {
         GetPage(name: '/profile', page: () => ProfilePage()),
         GetPage(name: '/vehicle', page: () => VehiclePage()),
         GetPage(name: '/leave', page: () => const LeavePage()),
+        GetPage(name: '/permission', page: () => const PermissionPage()),
+        GetPage(name: '/hierarchy', page: () => const HierarchyManagementPage()),
       ],
     );
   }

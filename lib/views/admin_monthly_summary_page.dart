@@ -1,13 +1,16 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../widgets/electric_refresh_indicator.dart';
 
 class AdminMonthlySummaryPage extends StatefulWidget {
+  const AdminMonthlySummaryPage({Key? key}) : super(key: key);
+
   @override
-  State<AdminMonthlySummaryPage> createState() =>
-      _AdminMonthlySummaryPageState();
+  State<AdminMonthlySummaryPage> createState() => _AdminMonthlySummaryPageState();
 }
 
 class _AdminMonthlySummaryPageState extends State<AdminMonthlySummaryPage> {
@@ -17,25 +20,22 @@ class _AdminMonthlySummaryPageState extends State<AdminMonthlySummaryPage> {
   bool isLoading = true;
   bool isSelectingUsers = false;
 
-  // Default: start of current month → today
   static DateTimeRange _defaultRange() => DateTimeRange(
-    start: DateTime(DateTime.now().year, DateTime.now().month, 1),
-    end: DateTime.now(),
-  );
-  late DateTimeRange? selectedRange = _defaultRange();
+        start: DateTime(DateTime.now().year, DateTime.now().month, 1),
+        end: DateTime.now(),
+      );
+  late DateTimeRange selectedRange = _defaultRange();
 
-  // Sophisticated monochrome palette
+  // Minimalist Palette
   static const Color _pureWhite = Color(0xFFFFFFFF);
-  static const Color _offWhite = Color(0xFFF8F8F8);
-  static const Color _lightGray = Color(0xFFEEEEEE);
-  static const Color _mediumGray = Color(0xFF9E9E9E);
-  static const Color _charcoal = Color(0xFF2C2C2C);
-  static const Color _pureBlack = Color(0xFF000000);
-
-  // Accent colors
-  static const Color _softGreen = Color(0xFF2E7D32);
-  static const Color _softRed = Color(0xFFC62828);
-  static const Color _softBlue = Color(0xFF1976D2);
+  static const Color _bgSoft = Color(0xFFFAFAFA);
+  static const Color _textMain = Color(0xFF1A1A1A);
+  static const Color _textDim = Color(0xFF757575);
+  static const Color _softGray = Color(0xFFF0F0F0);
+  static const Color _accent = Color(0xFF1A1A1A);
+  static const Color _success = Color(0xFF10B981);
+  static const Color _danger = Color(0xFFEF4444);
+  static const Color _info = Color(0xFF3B82F6);
 
   @override
   void initState() {
@@ -50,52 +50,300 @@ class _AdminMonthlySummaryPageState extends State<AdminMonthlySummaryPage> {
       if (mounted) {
         setState(() {
           allUsers = users;
-          isLoading = false;
+          if (users.isNotEmpty) {
+            selectedUserIds = users.map((u) => u['id'] as int).toList();
+          }
         });
-        // Auto-load summary for all users
-        if (users.isNotEmpty) {
-          selectedUserIds = users.map((u) => u['id'] as int).toList();
+        if (selectedUserIds.isNotEmpty) {
           _loadSummary();
+        } else {
+          setState(() => isLoading = false);
         }
       }
     } catch (e) {
       if (mounted) setState(() => isLoading = false);
-      Get.snackbar(
-        'Error',
-        'Failed to load users: $e',
-        backgroundColor: _softRed,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 14,
-      );
     }
   }
 
   Future<void> _loadSummary() async {
     if (selectedUserIds.isEmpty) return;
-
     setState(() => isLoading = true);
     try {
       final data = await ApiService.getAdminMonthlySummary(
         selectedUserIds,
-        startDate: selectedRange?.start,
-        endDate: selectedRange?.end,
+        startDate: selectedRange.start,
+        endDate: selectedRange.end,
       );
       if (mounted) setState(() => summaryData = data);
-    } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to load summary: $e',
-        backgroundColor: _softRed,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 14,
-      );
+    } catch (_) {
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.dark,
+      child: Scaffold(
+        backgroundColor: _bgSoft,
+        body: Column(
+          children: [
+            _buildHeader(),
+            _buildFilterBar(),
+            Expanded(
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator(color: _accent, strokeWidth: 2))
+                  : ElectricRefreshIndicator(
+                      onRefresh: _loadSummary,
+                      child: summaryData == null ? _buildEmptyState() : _buildContent(),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: EdgeInsets.only(
+        top: MediaQuery.of(context).padding.top + 20,
+        bottom: 10,
+        left: 24,
+        right: 24,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          GestureDetector(
+            onTap: () => Get.back(),
+            child: const Icon(Icons.arrow_back_ios_new_rounded, color: _textMain, size: 20),
+          ),
+          const Text(
+            'Performance',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _textMain, letterSpacing: -0.5),
+          ),
+          GestureDetector(
+            onTap: () => _showUserSelector(),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: _pureWhite, shape: BoxShape.circle, boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10),
+              ]),
+              child: const Icon(Icons.people_alt_rounded, color: _textMain, size: 18),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () => _pickDateRange(),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: _pureWhite,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8)],
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_month_rounded, size: 16, color: _textDim),
+                    const SizedBox(width: 10),
+                    Text(
+                      '${DateFormat('MMM d').format(selectedRange.start)} - ${DateFormat('MMM d').format(selectedRange.end)}',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _textMain),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    final summary = summaryData!['summary'] as Map<String, dynamic>;
+    final breakdown = summaryData!['user_breakdown'] as List<dynamic>;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 100),
+      children: [
+        _buildStatsGrid(summary),
+        const SizedBox(height: 32),
+        const Text('Staff Breakdown', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: _textMain)),
+        const SizedBox(height: 16),
+        ...breakdown.map((user) => _buildUserCard(user)),
+      ],
+    );
+  }
+
+  Widget _buildStatsGrid(Map<String, dynamic> summary) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            _buildGridStat('Duration', summary['total_worked_hours'] ?? '0h', _info),
+            const SizedBox(width: 12),
+            _buildGridStat('Overtime', summary['total_ot_hours'] ?? '0h', _danger),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            _buildGridStat('Completion', summary['completion_rate'] ?? '0%', _success),
+            const SizedBox(width: 12),
+            _buildGridStat('Daily Avg', summary['average_daily_hours'] ?? '0h', _textMain),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGridStat(String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: _pureWhite,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10)],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _textDim)),
+            const SizedBox(height: 8),
+            Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color, letterSpacing: -0.5)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserCard(dynamic user) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _pureWhite,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8)],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(user['username'] ?? 'User', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: _textMain)),
+              Text('${user['complete_days']} days', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _textDim)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _miniStat('Worked', user['total_duration'], _info),
+              _miniStat('OT', user['total_overtime'], _danger),
+              _miniStat('Avg', user['average_daily'], _textMain),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniStat(String label, String value, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: _textDim)),
+        const SizedBox(height: 2),
+        Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: color)),
+      ],
+    );
+  }
+
+  void _showUserSelector() {
+    Get.bottomSheet(
+      BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: const BoxDecoration(color: _pureWhite, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Select Staff', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _textMain)),
+                  TextButton(onPressed: () => setState(() => selectedUserIds = allUsers.map((u) => u['id'] as int).toList()), child: const Text('All')),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Flexible(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: allUsers.map((u) {
+                    final isSel = selectedUserIds.contains(u['id']);
+                    return GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          if (isSel) selectedUserIds.remove(u['id']);
+                          else selectedUserIds.add(u['id']);
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isSel ? _accent : _softGray,
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                        child: Text(
+                          u['username'],
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: isSel ? _pureWhite : _textDim),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Get.back();
+                    _loadSummary();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _accent,
+                    foregroundColor: _pureWhite,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    elevation: 0,
+                  ),
+                  child: const Text('Apply Selection', style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _pickDateRange() async {
@@ -106,12 +354,7 @@ class _AdminMonthlySummaryPageState extends State<AdminMonthlySummaryPage> {
       initialDateRange: selectedRange,
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.light(
-            primary: _charcoal,
-            onPrimary: _pureWhite,
-            surface: _pureWhite,
-            onSurface: _charcoal,
-          ),
+          colorScheme: const ColorScheme.light(primary: _accent, onPrimary: _pureWhite, surface: _pureWhite, onSurface: _accent),
         ),
         child: child!,
       ),
@@ -122,519 +365,7 @@ class _AdminMonthlySummaryPageState extends State<AdminMonthlySummaryPage> {
     }
   }
 
-  void _toggleUserSelection(int userId) {
-    setState(() {
-      if (selectedUserIds.contains(userId)) {
-        selectedUserIds.remove(userId);
-      } else {
-        selectedUserIds.add(userId);
-      }
-    });
-  }
-
-  void _selectAllUsers() {
-    setState(() {
-      selectedUserIds = allUsers.map((u) => u['id'] as int).toList();
-    });
-  }
-
-  void _clearUserSelection() {
-    setState(() => selectedUserIds.clear());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _offWhite,
-      body: NestedScrollView(
-        headerSliverBuilder: (ctx, _) => [
-          SliverAppBar(
-            pinned: true,
-            backgroundColor: _offWhite,
-            elevation: 0,
-            leading: IconButton(
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _charcoal.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.arrow_back_outlined,
-                  size: 20,
-                  color: _charcoal,
-                ),
-              ),
-              onPressed: () => Get.back(),
-            ),
-            title: const Text(
-              'Monthly Summary',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w500,
-                color: _charcoal,
-                letterSpacing: -0.5,
-              ),
-            ),
-            actions: [
-              IconButton(
-                icon: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _charcoal.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    isSelectingUsers ? Icons.check : Icons.people,
-                    size: 18,
-                    color: _charcoal,
-                  ),
-                ),
-                onPressed: () =>
-                    setState(() => isSelectingUsers = !isSelectingUsers),
-              ),
-              IconButton(
-                icon: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _charcoal.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.calendar_today,
-                    size: 18,
-                    color: _charcoal,
-                  ),
-                ),
-                onPressed: _pickDateRange,
-              ),
-            ],
-          ),
-        ],
-        body: isLoading
-            ? const Center(child: CircularProgressIndicator(color: _charcoal))
-            : ElectricRefreshIndicator(
-                onRefresh: _loadSummary,
-                color: _charcoal,
-                backgroundColor: _pureWhite,
-                child: CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    if (isSelectingUsers) ...[
-                      SliverToBoxAdapter(child: _buildUserSelection()),
-                    ],
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (summaryData != null) ...[
-                              _buildSummaryStats(),
-                              const SizedBox(height: 24),
-                              _buildUserBreakdown(),
-                            ] else
-                              _buildEmptyState(),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SliverToBoxAdapter(child: SizedBox(height: 30)),
-                  ],
-                ),
-              ),
-      ),
-    );
-  }
-
-  Widget _buildUserSelection() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _pureWhite,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _lightGray, width: 1),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Select Members',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: _charcoal,
-                ),
-              ),
-              Expanded(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: _selectAllUsers,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        foregroundColor: _mediumGray,
-                        textStyle: const TextStyle(fontWeight: FontWeight.w500),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text('All'),
-                    ),
-                    TextButton(
-                      onPressed: _clearUserSelection,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        foregroundColor: _mediumGray,
-                        textStyle: const TextStyle(fontWeight: FontWeight.w500),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text('Clear'),
-                    ),
-                    const SizedBox(width: 4),
-                    ElevatedButton(
-                      onPressed: selectedUserIds.isNotEmpty
-                          ? _loadSummary
-                          : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _charcoal,
-                        foregroundColor: _pureWhite,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 0,
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text(
-                        'Apply',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: allUsers.map((user) {
-              final isSelected = selectedUserIds.contains(user['id']);
-              return FilterChip(
-                label: Text(user['username'] ?? 'Unknown'),
-                selected: isSelected,
-                onSelected: (_) => _toggleUserSelection(user['id']),
-                backgroundColor: _offWhite,
-                selectedColor: _charcoal.withOpacity(0.1),
-                checkmarkColor: _charcoal,
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryStats() {
-    final summary = summaryData!['summary'] as Map<String, dynamic>;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Period info
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: _pureWhite,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: _lightGray, width: 1),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.date_range, color: _mediumGray, size: 20),
-              const SizedBox(width: 12),
-              Text(
-                '${DateFormat('d MMM y').format(selectedRange!.start)} — ${DateFormat('d MMM y').format(selectedRange!.end)}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: _charcoal,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // Stats grid
-        Row(
-          children: [
-            Expanded(
-              child: _statCard(
-                'Total Duration',
-                summary['total_worked_hours'] ?? '0h 0m',
-                Icons.schedule,
-                _softGreen,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _statCard(
-                'Total Overtime',
-                summary['total_ot_hours'] ?? '0h 0m',
-                Icons.access_time,
-                _softRed,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _statCard(
-                'Days Attended',
-                '${summary['total_days_with_checkout'] ?? 0}',
-                Icons.check_circle,
-                _softBlue,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _statCard(
-                'Incomplete Days',
-                '${summary['total_days_with_records'] ?? 0 - (summary['total_days_with_checkout'] ?? 0)}',
-                Icons.warning,
-                _mediumGray,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _statCard(
-                'Completion Rate',
-                summary['completion_rate'] ?? '0%',
-                Icons.trending_up,
-                _softGreen,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _statCard(
-                'Avg Daily Hours',
-                summary['average_daily_hours'] ?? '0h 0m',
-                Icons.bar_chart,
-                _softBlue,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _statCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _pureWhite,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _lightGray, width: 1),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 12,
-              color: _mediumGray,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUserBreakdown() {
-    final breakdown = summaryData!['user_breakdown'] as List<dynamic>;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Member Breakdown',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: _charcoal,
-          ),
-        ),
-        const SizedBox(height: 16),
-        ...breakdown.map(
-          (user) => Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: _pureWhite,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _lightGray, width: 1),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      user['username'] ?? 'Unknown',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: _charcoal,
-                      ),
-                    ),
-                    Text(
-                      '${user['complete_days']}/${user['total_days']} days',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: _mediumGray,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _miniStat(
-                        'Duration',
-                        user['total_duration'],
-                        _softGreen,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _miniStat(
-                        'Overtime',
-                        user['total_overtime'],
-                        _softRed,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _miniStat(
-                        'Avg Daily',
-                        user['average_daily'],
-                        _softBlue,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _miniStat(String label, String value, Color color) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10,
-            color: _mediumGray,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildEmptyState() {
-    return Container(
-      padding: const EdgeInsets.all(40),
-      decoration: BoxDecoration(
-        color: _pureWhite,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: _lightGray, width: 1),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.analytics_outlined,
-            size: 48,
-            color: _mediumGray.withOpacity(0.3),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Monthly Summary',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: _charcoal,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Select members to view aggregated monthly statistics',
-            style: TextStyle(
-              fontSize: 14,
-              color: _mediumGray,
-              fontWeight: FontWeight.w400,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
+    return const Center(child: Text('No data found', style: TextStyle(color: _textDim, fontWeight: FontWeight.w600)));
   }
 }

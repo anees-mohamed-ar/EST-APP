@@ -615,11 +615,18 @@ class _DailyAttendancePageState extends State<DailyAttendancePage>
     final formatted =
         monthlySummary?['formatted'] as Map<String, dynamic>? ?? {};
 
+    double _safeNum(dynamic val) {
+      if (val == null) return 0.0;
+      if (val is num) return val.toDouble();
+      if (val is String) return double.tryParse(val) ?? 0.0;
+      return 0.0;
+    }
+
     final totalRegular = formatted['total_regular'] ?? '0h 0m';
     final totalOT = formatted['total_overtime'] ?? '0h 0m';
-    final daysPresent = attendance['total_days_present'] ?? totalDays;
+    final daysPresent = _safeNum(attendance['total_days_present'] ?? totalDays);
     final completeDaysPayroll =
-        attendance['total_complete_days'] ?? completeDays;
+        _safeNum(attendance['total_complete_days'] ?? completeDays);
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
