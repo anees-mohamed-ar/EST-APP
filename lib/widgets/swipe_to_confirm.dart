@@ -7,6 +7,7 @@ class SwipeToConfirm extends StatefulWidget {
   final IconData icon;
   final Color color;
   final bool loading;
+  final bool enabled;
   final VoidCallback onConfirmed;
   final int countdown;
 
@@ -16,6 +17,7 @@ class SwipeToConfirm extends StatefulWidget {
     required this.icon,
     this.color = const Color(0xFF22C55E),
     this.loading = false,
+    this.enabled = true,
     required this.onConfirmed,
     this.countdown = 0,
   }) : super(key: key);
@@ -78,7 +80,7 @@ class _SwipeToConfirmState extends State<SwipeToConfirm> with TickerProviderStat
   bool _isDragging = false;
 
   void _onPanStart(DragStartDetails d) {
-    if (widget.loading) return;
+    if (widget.loading || !widget.enabled) return;
     _isDragging = true;
   }
 
@@ -153,7 +155,7 @@ class _SwipeToConfirmState extends State<SwipeToConfirm> with TickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    final color = widget.loading ? Colors.grey : widget.color;
+    final color = (widget.loading || !widget.enabled) ? Colors.grey : widget.color;
     return LayoutBuilder(builder: (ctx, constraints) {
       final maxSwipe = (constraints.maxWidth - 56.0).clamp(0.0, double.infinity);
 

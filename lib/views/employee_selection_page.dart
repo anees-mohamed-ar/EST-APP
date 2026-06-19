@@ -214,9 +214,9 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      'Select Site for Check-in',
-                      style: TextStyle(
+                    Text(
+                      'Select Site for ${isCheckIn ? 'Check-in' : 'Check-out'}',
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                         color: _textPrimary,

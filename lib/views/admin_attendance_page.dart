@@ -917,6 +917,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
     final shiftDate = u['shift_date'] as String?;
     final permissionMinutes = u['permission_minutes'] ?? 0;
     final permissionType = u['permission_type'] as String?;
+    final siteName = checkIn?['site'] as String? ?? checkOut?['site'] as String? ?? 'N/A';
 
     return RepaintBoundary(
       child: Container(
@@ -1023,6 +1024,42 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                   ],
                 ),
               ),
+              if (siteName != 'N/A') ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0xFFBFDBFE)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.location_on, size: 12, color: Color(0xFF1D4ED8)),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                siteName,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Color(0xFF1D4ED8),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),

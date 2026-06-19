@@ -400,6 +400,7 @@ class VehiclePage extends StatefulWidget {
 class _VehiclePageState extends State<VehiclePage>
     with TickerProviderStateMixin {
   final storage = GetStorage();
+  late TabController _tabCtrl;
   int _tab = 0; // 0=Dashboard  1=Vehicle  2=Fuel
 
   // shared
@@ -444,6 +445,12 @@ class _VehiclePageState extends State<VehiclePage>
   @override
   void initState() {
     super.initState();
+    _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl.addListener(() {
+      if (_tabCtrl.index != _tab) {
+        setState(() => _tab = _tabCtrl.index);
+      }
+    });
     _boot();
   }
 
@@ -952,7 +959,7 @@ class _VehiclePageState extends State<VehiclePage>
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   void _setTab(int i) {
-    setState(() => _tab = i);
+    _tabCtrl.animateTo(i);
     if (i == 1 || i == 2) _fetchVehicles();
   }
 
@@ -1011,6 +1018,7 @@ class _VehiclePageState extends State<VehiclePage>
 
   @override
   void dispose() {
+    _tabCtrl.dispose();
     _photoExpiryTimer?.cancel();
     _startOdoCtrl.dispose(); _endOdoCtrl.dispose();
     _startLocCtrl.dispose(); _endLocCtrl.dispose();
@@ -1036,8 +1044,8 @@ class _VehiclePageState extends State<VehiclePage>
                 Expanded(
                   child: _isLoading
                       ? const _VehicleLoadingSplash()
-                      : IndexedStack(
-                          index: _tab,
+                      : TabBarView(
+                          controller: _tabCtrl,
                           children: [
                             _DashboardTab(
                               dashData:    _dashData,
@@ -1204,7 +1212,7 @@ class _VehiclePageState extends State<VehiclePage>
       child: ClipRRect(
         borderRadius: BorderRadius.circular(100),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: Stack(
             children: [
               // Top gloss highlight
@@ -1220,24 +1228,23 @@ class _VehiclePageState extends State<VehiclePage>
               ),
 
               // Animated highlight pill
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 600),
-                curve: Curves.easeInOutQuart,
-                top: 8,
-                bottom: 8,
-                left: _dockPillLeft(),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 600),
-                  curve: Curves.easeInOutQuart,
-                  width: _dockPillWidth(),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(100),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.12),
-                        blurRadius: 10, offset: const Offset(0, 4))
-                    ],
+              AnimatedBuilder(
+                animation: _tabCtrl.animation!,
+                builder: (context, child) => Positioned(
+                  top: 8,
+                  bottom: 8,
+                  left: _dockPillLeft(),
+                  child: Container(
+                    width: _dockPillWidth(),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(100),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.12),
+                          blurRadius: 10, offset: const Offset(0, 4))
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1264,7 +1271,7 @@ class _VehiclePageState extends State<VehiclePage>
     const padding = 8.0;
     final width = (MediaQuery.of(context).size.width - 48); // margin aware
     final itemWidth = (width - 2) / 3;
-    return padding + _tab * (itemWidth + 1.0);
+    return padding + (_tabCtrl.animation?.value ?? _tabCtrl.index) * (itemWidth + 1.0);
   }
 
   double _dockPillWidth() {

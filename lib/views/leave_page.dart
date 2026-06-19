@@ -4,10 +4,13 @@ import 'package:get_storage/get_storage.dart';
 import 'package:get/get.dart';
 import 'dart:ui';
 import 'package:intl/intl.dart';
+import '../controllers/leave_calendar_controller.dart';
 import '../services/api_service.dart';
 import '../widgets/leave_calendar_widget.dart';
 import '../controllers/leave_calendar_controller.dart';
 import '../widgets/swipe_to_confirm.dart';
+
+enum LeaveMode { none, paid, inform }
 
 class LeavePage extends StatefulWidget {
   const LeavePage({super.key});
@@ -23,8 +26,8 @@ class _LeavePageState extends State<LeavePage>
   // ── Palette: Charcoal / Black / White (core) ──────────────────────────────
   static const Color _black = Color(0xFF111111);
   static const Color _charcoal = Color(0xFF2C2C2C);
-  static const Color _darkGray = Color(0xFF4A4A4A);
-  static const Color _mediumGray = Color(0xFF888888);
+  static const Color _darkGray = Color(0xFF333333);
+  static const Color _mediumGray = Color(0xFF555555);
   static const Color _lightGray = Color(0xFFD8D8D8);
   static const Color _softGray = Color(0xFFF0F0F0);
   static const Color _offWhite = Color(0xFFF7F7F7);
@@ -36,8 +39,10 @@ class _LeavePageState extends State<LeavePage>
   static const Color _statusGreen = Color(0xFF2E7D32); // Approved
   static const Color _statusAmber = Color(0xFFE65100); // Pending
   static const Color _softRed = Color(0xFFC62828); // Rejected / danger
+  static const Color _lopAmber = Color(0xFFBF360C); // LOP — Loss of Pay
 
   late TabController _tabCtrl;
+  LeaveMode _currentMode = LeaveMode.none;
 
   // balance
   Map<String, dynamic>? _balance;
@@ -59,6 +64,7 @@ class _LeavePageState extends State<LeavePage>
   double _computedDays = 0;
   double _elDays = 0;
   double _clDays = 0;
+  double _lopDays = 0;
   bool _isHalfDay = false;
   String _selectedSession = 'first_half';
   String _reason = '';
@@ -185,7 +191,11 @@ class _LeavePageState extends State<LeavePage>
 
     final user = storage.read('user');
     if (user != null) {
-      await controller.fetchApprovedLeaveDays(user['id'] as int);
+      controller.userId = user['id'] as int;
+      await Future.wait([
+        controller.fetchApprovedLeaveDays(controller.userId!),
+        controller.fetchPresentDays(controller.userId!, DateTime.now()),
+      ]);
     }
     controller.isHalfDayMode.value = _isHalfDay;
 
@@ -257,6 +267,17 @@ class _LeavePageState extends State<LeavePage>
       return;
     }
 
+    final double totalRequested = _elDays + _clDays + _lopDays;
+    final double maxAllowed = _isHalfDay ? 0.5 : _computedDays;
+
+    if (totalRequested != maxAllowed) {
+      _snack(
+        'Please allocate exactly $maxAllowed day(s) (Total allocated: $totalRequested)',
+        isError: true,
+      );
+      return;
+    }
+
     if (!_hasAcceptAccess &&
         _editingRequestId == null &&
         _fixedApprovers.isEmpty &&
@@ -268,13 +289,7 @@ class _LeavePageState extends State<LeavePage>
       return;
     }
 
-    final double totalRequested = _elDays + _clDays;
-    final double maxAllowed = _isHalfDay ? 0.5 : _computedDays;
 
-    if (totalRequested > maxAllowed) {
-      _snack('EL + CL days cannot exceed $maxAllowed', isError: true);
-      return;
-    }
 
     final String sessionToSend = _isHalfDay
         ? (_selectedSession == 'full' ? 'first_half' : _selectedSession)
@@ -314,6 +329,7 @@ class _LeavePageState extends State<LeavePage>
               : DateFormat('yyyy-MM-dd').format(_toDate!),
           elDays: _elDays,
           clDays: _clDays,
+          lopDays: _lopDays,
           reason: _reason.isEmpty ? null : _reason,
           session: _isHalfDay ? _selectedSession : 'full',
         );
@@ -327,6 +343,7 @@ class _LeavePageState extends State<LeavePage>
               : DateFormat('yyyy-MM-dd').format(_toDate!),
           elDays: _elDays,
           clDays: _clDays,
+          lopDays: _lopDays,
           reason: _reason.isEmpty ? null : _reason,
           approverId: _hasAcceptAccess
               ? null
@@ -344,7 +361,9 @@ class _LeavePageState extends State<LeavePage>
         _computedDays = 0;
         _elDays = 0;
         _clDays = 0;
+        _lopDays = 0;
         _reason = '';
+        _currentMode = LeaveMode.none;
         _submitting = false;
         _editingRequestId = null;
       });
@@ -365,10 +384,12 @@ class _LeavePageState extends State<LeavePage>
       _toDate = DateTime.parse(req['to_date'].toString().substring(0, 10));
       _elDays = double.tryParse(req['el_days'].toString()) ?? 0.0;
       _clDays = double.tryParse(req['cl_days'].toString()) ?? 0.0;
+      _lopDays = double.tryParse(req['lop_days'].toString()) ?? 0.0;
       _computedDays = double.tryParse(req['total_days'].toString()) ?? 0.0;
       _isHalfDay = _computedDays == 0.5;
       _selectedSession = req['session']?.toString() ?? 'full';
       _reason = req['reason']?.toString() ?? '';
+      _currentMode = _lopDays > 0 ? LeaveMode.inform : LeaveMode.paid;
     });
     _tabCtrl.animateTo(0);
   }
@@ -513,7 +534,24 @@ class _LeavePageState extends State<LeavePage>
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => Get.back(),
+            onTap: () {
+              if (_currentMode != LeaveMode.none) {
+                setState(() {
+                  _currentMode = LeaveMode.none;
+                  _editingRequestId = null;
+                  // Reset form fields
+                  _fromDate = null;
+                  _toDate = null;
+                  _computedDays = 0;
+                  _elDays = 0;
+                  _clDays = 0;
+                  _lopDays = 0;
+                  _reason = '';
+                });
+              } else {
+                Get.back();
+              }
+            },
             child: Container(
               padding: const EdgeInsets.all(9),
               decoration: BoxDecoration(
@@ -582,26 +620,46 @@ class _LeavePageState extends State<LeavePage>
       child: Scaffold(
         backgroundColor: _offWhite,
         resizeToAvoidBottomInset: false,
-        body: Stack(
-          children: [
-            Column(
-              children: [
-                _buildAppBar(),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabCtrl,
-                    children: [_buildApplyTab(), _buildHistoryTab()],
+        body: PopScope(
+          canPop: _currentMode == LeaveMode.none,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            if (_currentMode != LeaveMode.none) {
+              setState(() {
+                _currentMode = LeaveMode.none;
+                _editingRequestId = null;
+                // Reset form fields
+                _fromDate = null;
+                _toDate = null;
+                _computedDays = 0;
+                _elDays = 0;
+                _clDays = 0;
+                _lopDays = 0;
+                _reason = '';
+              });
+            }
+          },
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  _buildAppBar(),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabCtrl,
+                      children: [_buildApplyTab(), _buildHistoryTab()],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            Positioned(
-              bottom: MediaQuery.of(context).padding.bottom + 16,
-              left: 24,
-              right: 24,
-              child: _buildDock(),
-            ),
-          ],
+                ],
+              ),
+              Positioned(
+                bottom: MediaQuery.of(context).padding.bottom + 16,
+                left: 24,
+                right: 24,
+                child: _buildDock(),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -623,7 +681,7 @@ class _LeavePageState extends State<LeavePage>
       child: ClipRRect(
         borderRadius: BorderRadius.circular(100),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: Stack(
             children: [
               Positioned(
@@ -644,16 +702,12 @@ class _LeavePageState extends State<LeavePage>
                 ),
               ),
               AnimatedBuilder(
-                animation: _tabCtrl,
-                builder: (context, child) => AnimatedPositioned(
-                  duration: const Duration(milliseconds: 600),
-                  curve: Curves.easeInOutQuart,
+                animation: _tabCtrl.animation!,
+                builder: (context, child) => Positioned(
                   top: 8,
                   bottom: 8,
                   left: _dockPillLeft(),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 600),
-                    curve: Curves.easeInOutQuart,
+                  child: Container(
                     width: _dockPillWidth(),
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -697,7 +751,7 @@ class _LeavePageState extends State<LeavePage>
     const padding = 8.0;
     final width = (MediaQuery.of(context).size.width - 48);
     final itemWidth = (width - 1) / 2;
-    return padding + _tabCtrl.index * (itemWidth + 1.0);
+    return padding + (_tabCtrl.animation?.value ?? _tabCtrl.index) * (itemWidth + 1.0);
   }
 
   double _dockPillWidth() {
@@ -760,6 +814,10 @@ class _LeavePageState extends State<LeavePage>
   // ── Apply Tab ─────────────────────────────────────────────────────────────
 
   Widget _buildApplyTab() {
+    if (_currentMode == LeaveMode.none) {
+      return _buildModeSelection();
+    }
+
     final elBal = (_balance?['el_balance'] ?? 0).toDouble();
     final clBal = (_balance?['cl_balance'] ?? 0).toDouble();
     final bool isLocked = _hasPendingRequest && _editingRequestId == null;
@@ -807,6 +865,7 @@ class _LeavePageState extends State<LeavePage>
                           style: TextStyle(
                             fontSize: 12,
                             color: _darkGray,
+                            fontWeight: FontWeight.w500,
                             height: 1.35,
                           ),
                         ),
@@ -819,16 +878,29 @@ class _LeavePageState extends State<LeavePage>
             const SizedBox(height: 16),
           ],
           // ── Balance Cards ──────────────────────────────────────────────
-          if (_loadingBalance)
-            _loadingPlaceholder(height: 96)
-          else
-            Row(
-              children: [
-                Expanded(child: _balanceCard('Earned Leave', elBal, _elBlue)),
-                const SizedBox(width: 12),
-                Expanded(child: _balanceCard('Casual Leave', clBal, _clTeal)),
-              ],
+          Text(
+            _currentMode == LeaveMode.paid ? 'Paid Leave Application' : 'Inform Leave (LOP)',
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: _black,
+              letterSpacing: -0.5,
             ),
+          ),
+          const SizedBox(height: 24),
+
+          if (_currentMode == LeaveMode.paid) ...[
+            if (_loadingBalance)
+              _loadingPlaceholder(height: 96)
+            else
+              Row(
+                children: [
+                  Expanded(child: _balanceCard('Earned Leave', elBal, _elBlue)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _balanceCard('Casual Leave', clBal, _clTeal)),
+                ],
+              ),
+          ],
 
           const SizedBox(height: 28),
 
@@ -870,6 +942,7 @@ class _LeavePageState extends State<LeavePage>
                       _computedDays = 0;
                       _elDays = 0;
                       _clDays = 0;
+                      _lopDays = 0;
                     }),
                   ),
                 ],
@@ -881,49 +954,72 @@ class _LeavePageState extends State<LeavePage>
 
           // ── Sandwich info ──────────────────────────────────────────────
           if (_computedDays > 0) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
+            _changeModeButton(),
+            const SizedBox(height: 16),
             _sandwichInfoBanner(),
           ],
 
           // ── Leave Type Split ───────────────────────────────────────────
           if (_computedDays > 0) ...[
             const SizedBox(height: 28),
-            _sectionLabel('Split Leave Type'),
+            _sectionLabel(_currentMode == LeaveMode.paid ? 'Split Leave Type' : 'LOP Allocation'),
             const SizedBox(height: 6),
             Text(
-              'EL + CL days must be ≤ $_computedDays day${_computedDays == 1 ? '' : 's'}',
+              _currentMode == LeaveMode.paid
+                  ? 'EL + CL days must be ≤ $_computedDays day${_computedDays == 1 ? '' : 's'}'
+                  : 'Allocation must be exactly $_computedDays day${_computedDays == 1 ? '' : 's'}',
               style: const TextStyle(
                 fontSize: 14,
                 color: _mediumGray,
-                fontWeight: FontWeight.w400,
+                fontWeight: FontWeight.w500,
               ),
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _leaveTypeInput(
-                    label: 'EL Days',
-                    sublabel: 'Earned Leave',
-                    value: _elDays,
-                    max: elBal,
-                    accentColor: _elBlue,
-                    onChanged: (v) => setState(() => _elDays = v),
+            if (_currentMode == LeaveMode.paid) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: _leaveTypeInput(
+                      label: 'EL Days',
+                      sublabel: 'Earned Leave',
+                      value: _elDays,
+                      max: elBal,
+                      accentColor: _elBlue,
+                      onChanged: (v) => setState(() => _elDays = v),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _leaveTypeInput(
-                    label: 'CL Days',
-                    sublabel: 'Casual Leave',
-                    value: _clDays,
-                    max: clBal,
-                    accentColor: _clTeal,
-                    onChanged: (v) => setState(() => _clDays = v),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _leaveTypeInput(
+                      label: 'CL Days',
+                      sublabel: 'Casual Leave',
+                      value: _clDays,
+                      max: clBal,
+                      accentColor: _clTeal,
+                      onChanged: (v) => setState(() => _clDays = v),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
+            if (_currentMode == LeaveMode.inform) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: _leaveTypeInput(
+                      label: 'LOP Days',
+                      sublabel: 'Loss of Pay',
+                      value: _lopDays,
+                      max: _computedDays,
+                      accentColor: _lopAmber,
+                      onChanged: (v) => setState(() => _lopDays = v),
+                    ),
+                  ),
+                  const Spacer(),
+                ],
+              ),
+            ],
 
             // Running total
             const SizedBox(height: 14),
@@ -992,6 +1088,165 @@ class _LeavePageState extends State<LeavePage>
             const SizedBox(height: 24),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildModeSelection() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 10),
+          const Text(
+            'Choose Leave Type',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: _black,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Select how you would like to apply for your leave today.',
+            style: TextStyle(fontSize: 14, color: _mediumGray),
+          ),
+          const SizedBox(height: 32),
+          _modeCard(
+            mode: LeaveMode.paid,
+            title: 'Paid Leave (EL / CL)',
+            subtitle: 'Apply using your Earned or Casual leave balance.',
+            icon: Icons.account_balance_wallet_outlined,
+            accentColor: _elBlue,
+          ),
+          const SizedBox(height: 16),
+          _modeCard(
+            mode: LeaveMode.inform,
+            title: 'Inform Leave (LOP)',
+            subtitle: 'Loss of Pay — Simply informing about your absence.',
+            icon: Icons.info_outline_rounded,
+            accentColor: _lopAmber,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _modeCard({
+    required LeaveMode mode,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color accentColor,
+  }) {
+    return InkWell(
+      onTap: () {
+        HapticFeedback.mediumImpact();
+        setState(() {
+          _currentMode = mode;
+          // Reset values when switching
+          _elDays = 0;
+          _clDays = 0;
+          _lopDays = 0;
+        });
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: _pureWhite,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _lightGray, width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: _black.withOpacity(0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: accentColor.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: accentColor, size: 32),
+            ),
+            const SizedBox(width: 20),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: _black,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: _mediumGray,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: _lightGray,
+              size: 28,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _changeModeButton() {
+    return InkWell(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        setState(() {
+          _currentMode = LeaveMode.none;
+          _elDays = 0;
+          _clDays = 0;
+          _lopDays = 0;
+        });
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: _offWhite,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _lightGray, width: 1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.swap_horiz_rounded, size: 16, color: _mediumGray),
+            const SizedBox(width: 8),
+            Text(
+              'Change Leave Type: ${_currentMode == LeaveMode.paid ? "Paid" : "Inform"}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: _darkGray,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1236,7 +1491,7 @@ class _LeavePageState extends State<LeavePage>
                 title,
                 style: TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                   color: accentColor,
                   letterSpacing: 0.2,
                 ),
@@ -1257,7 +1512,11 @@ class _LeavePageState extends State<LeavePage>
           const SizedBox(height: 4),
           const Text(
             'days available',
-            style: TextStyle(fontSize: 12, color: _mediumGray),
+            style: TextStyle(
+              fontSize: 12,
+              color: _mediumGray,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -1308,8 +1567,8 @@ class _LeavePageState extends State<LeavePage>
                       'You have a leave request awaiting approval',
                       style: TextStyle(
                         fontSize: 13,
-                        color: Color(0xFFBBBBBB),
-                        fontWeight: FontWeight.w400,
+                        color: Color(0xFFDDDDDD),
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
@@ -1468,7 +1727,7 @@ class _LeavePageState extends State<LeavePage>
                             style: TextStyle(
                               fontSize: 11,
                               color: _mediumGray,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           const SizedBox(height: 3),
@@ -1490,7 +1749,7 @@ class _LeavePageState extends State<LeavePage>
                         style: TextStyle(
                           fontSize: 15,
                           color: isLocked ? _mediumGray : _darkGray,
-                          fontWeight: FontWeight.w500,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
               ),
@@ -1526,7 +1785,7 @@ class _LeavePageState extends State<LeavePage>
                 style: const TextStyle(
                   fontSize: 13,
                   color: _darkGray,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                   height: 1.4,
                 ),
                 children: [
@@ -1561,10 +1820,10 @@ class _LeavePageState extends State<LeavePage>
   }) {
     final bool canDecrement = value > 0;
     final bool canIncrement =
-        value < max && (_elDays + _clDays) < _computedDays;
+        value < max && (_elDays + _clDays + _lopDays) < _computedDays;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
       decoration: BoxDecoration(
         color: _pureWhite,
         borderRadius: BorderRadius.circular(14),
@@ -1583,7 +1842,11 @@ class _LeavePageState extends State<LeavePage>
           ),
           Text(
             sublabel,
-            style: const TextStyle(fontSize: 11, color: _mediumGray),
+            style: const TextStyle(
+              fontSize: 11,
+              color: _mediumGray,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 14),
           Row(
@@ -1709,8 +1972,8 @@ class _LeavePageState extends State<LeavePage>
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 40,
-          height: 40,
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
             color: enabled ? _black : _softGray,
             borderRadius: BorderRadius.circular(10),
@@ -1722,7 +1985,7 @@ class _LeavePageState extends State<LeavePage>
   }
 
   Widget _totalValidationRow() {
-    final total = _elDays + _clDays;
+    final total = _elDays + _clDays + _lopDays;
     final isValid = total == _computedDays;
 
     return Container(
@@ -1801,11 +2064,11 @@ class _LeavePageState extends State<LeavePage>
   }
 
   Widget _submitRow({required bool isLocked}) {
+    final double totalAllocated = _elDays + _clDays + _lopDays;
     final bool canSubmit =
         !_submitting &&
         !isLocked &&
-        (_elDays + _clDays) > 0 &&
-        (_elDays + _clDays) <= _computedDays &&
+        totalAllocated == _computedDays &&
         _computedDays > 0;
 
     return Column(
@@ -1816,6 +2079,7 @@ class _LeavePageState extends State<LeavePage>
               : 'Swipe to Submit Leave',
           icon: Icons.calendar_month_rounded,
           color: canSubmit ? _black : _lightGray,
+          enabled: canSubmit,
           loading: _submitting,
           onConfirmed: () {
             if (canSubmit) {
@@ -1840,7 +2104,9 @@ class _LeavePageState extends State<LeavePage>
                 _computedDays = 0;
                 _elDays = 0;
                 _clDays = 0;
+                _lopDays = 0;
                 _reason = '';
+                _currentMode = LeaveMode.none;
               }),
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -2157,7 +2423,7 @@ class _LeavePageState extends State<LeavePage>
                         isExpanded ? 'Hide details' : 'Show details',
                         style: const TextStyle(
                           fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                           color: _mediumGray,
                         ),
                       ),
@@ -2193,65 +2459,105 @@ class _LeavePageState extends State<LeavePage>
                     // ── Approval Info ──────────────────────────────────────────
                     if (isPending) ...[
                       const SizedBox(height: 12),
-                      Row(
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(
-                            Icons.person_search_rounded,
-                            size: 16,
-                            color: _mediumGray,
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'Target Approver: ',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: _mediumGray,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Expanded(
-                            child: Text(
-                              req['approver_name'] ??
-                                  req['approver_username'] ??
-                                  'Hierarchy',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: _black,
-                                fontWeight: FontWeight.w700,
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.person_search_rounded,
+                                size: 16,
+                                color: _mediumGray,
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Target Approvers:',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: _mediumGray,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: (req['approver_name']?.toString() ?? 
+                                      req['approver_username']?.toString() ?? 
+                                      'Hierarchy')
+                                .split(', ')
+                                .map((name) => Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: _softGray,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: _lightGray, width: 1),
+                                      ),
+                                      child: Text(
+                                        name,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: _black,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ))
+                                .toList(),
                           ),
                         ],
                       ),
                     ] else if (req['reviewed_by_username'] != null) ...[
                       const SizedBox(height: 12),
-                      Row(
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.verified_user_outlined,
-                            size: 16,
-                            color: statusColor,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            req['status'] == 'approved'
-                                ? 'Approved by: '
-                                : 'Rejected by: ',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: _mediumGray,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Expanded(
-                            child: Text(
-                              req['reviewed_by_username'].toString(),
-                              style: TextStyle(
-                                fontSize: 13,
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.verified_user_outlined,
+                                size: 16,
                                 color: statusColor,
-                                fontWeight: FontWeight.w700,
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              Text(
+                                req['status'] == 'approved'
+                                    ? 'Approved by:'
+                                    : 'Rejected by:',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: _mediumGray,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: (req['reviewed_by_name']?.toString() ?? 
+                                      req['reviewed_by_username']?.toString() ?? 
+                                      'Unknown')
+                                .split(', ')
+                                .map((name) => Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: statusColor.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: statusColor.withOpacity(0.3), width: 1),
+                                      ),
+                                      child: Text(
+                                        name,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: statusColor,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ))
+                                .toList(),
                           ),
                         ],
                       ),
@@ -2313,6 +2619,7 @@ class _LeavePageState extends State<LeavePage>
   Widget _leaveTypeCard(Map<String, dynamic> req) {
     final elDays = req['el_days']?.toString() ?? '0';
     final clDays = req['cl_days']?.toString() ?? '0';
+    final lopDays = req['lop_days']?.toString() ?? '0';
     final totalDays = req['total_days']?.toString() ?? '0';
 
     return Container(
@@ -2339,6 +2646,15 @@ class _LeavePageState extends State<LeavePage>
               label: 'CL',
               value: clDays,
               accentColor: _clTeal,
+            ),
+          ),
+          const SizedBox(width: 8),
+          // LOP column
+          Expanded(
+            child: _leaveTypeColumn(
+              label: 'LOP',
+              value: lopDays,
+              accentColor: _lopAmber,
             ),
           ),
           const SizedBox(width: 8),
@@ -2422,7 +2738,7 @@ class _LeavePageState extends State<LeavePage>
           style: const TextStyle(
             fontSize: 13,
             color: _mediumGray,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w700,
           ),
         ),
         Expanded(
@@ -2431,7 +2747,7 @@ class _LeavePageState extends State<LeavePage>
             style: const TextStyle(
               fontSize: 13,
               color: _darkGray,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -2475,7 +2791,7 @@ class _LeavePageState extends State<LeavePage>
             style: const TextStyle(
               fontSize: 14,
               color: _charcoal,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w600,
               height: 1.4,
             ),
           ),

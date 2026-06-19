@@ -52,6 +52,9 @@ class _ReviewPageState extends State<ReviewPage>
   Set<int> _selectedLeaveIds = {};
   Set<int> _selectedPermissionIds = {};
   bool _selectionMode = false;
+  String _searchQuery = '';
+  DateTimeRange? _dateRange;
+  final TextEditingController _searchCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -63,6 +66,14 @@ class _ReviewPageState extends State<ReviewPage>
           if (_tabCtrl.index == 2) _selectionMode = false;
         });
     });
+
+    // Default to current month for history
+    final now = DateTime.now();
+    _dateRange = DateTimeRange(
+      start: DateTime(now.year, now.month, 1),
+      end: DateTime(now.year, now.month + 1, 0),
+    );
+
     _fetchLeaves();
     _fetchPermissions();
     _fetchHistory();
@@ -194,19 +205,23 @@ class _ReviewPageState extends State<ReviewPage>
       ),
       body: Stack(
         children: [
-          TabBarView(
-            controller: _tabCtrl,
-            children: [
-              _buildLeaveReviewTab(),
-              _buildPermissionReviewTab(),
-              _buildHistoryTab(),
-            ],
+          RepaintBoundary(
+            child: TabBarView(
+              controller: _tabCtrl,
+              children: [
+                _buildLeaveReviewTab(),
+                _buildPermissionReviewTab(),
+                _buildHistoryTab(),
+              ],
+            ),
           ),
           Positioned(
             bottom: MediaQuery.of(context).padding.bottom + 16,
             left: 24,
             right: 24,
-            child: _selectionMode ? _buildBulkActionBar() : _buildDock(),
+            child: RepaintBoundary(
+              child: _selectionMode ? _buildBulkActionBar() : _buildDock(),
+            ),
           ),
         ],
       ),
@@ -360,22 +375,44 @@ class _ReviewPageState extends State<ReviewPage>
 
     if (ids.isEmpty) return;
 
+    final noteController = TextEditingController();
     final confirm = await Get.dialog<bool>(
       AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(status == 'approved' ? 'Bulk Approve' : 'Bulk Reject'),
-        content: Text(
-          'Are you sure you want to $status ${ids.length} requests?',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to $status ${ids.length} requests?',
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: noteController,
+              decoration: InputDecoration(
+                labelText: 'Common Note (Optional)',
+                labelStyle: const TextStyle(fontSize: 13),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                hintText: 'Enter a note for all...',
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              ),
+              maxLines: 2,
+            ),
+          ],
         ),
         actions: [
           TextButton(
             onPressed: () => Get.back(result: false),
-            child: const Text('Cancel'),
+            child: const Text('Cancel', style: TextStyle(color: _mediumGray)),
           ),
           ElevatedButton(
             onPressed: () => Get.back(result: true),
             style: ElevatedButton.styleFrom(
               backgroundColor: status == 'approved' ? _statusGreen : _softRed,
               foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
             child: Text(status == 'approved' ? 'Approve' : 'Reject'),
           ),
@@ -384,11 +421,12 @@ class _ReviewPageState extends State<ReviewPage>
     );
 
     if (confirm != true) return;
+    final commonNote = noteController.text.trim();
 
     Get.showOverlay(
       asyncFunction: () async {
         for (final id in ids) {
-          await _handleReview(id, status, isLeave: isLeave, silent: true);
+          await _handleReview(id, status, isLeave: isLeave, silent: true, note: commonNote);
         }
         await (isLeave ? _fetchLeaves() : _fetchPermissions());
         _exitSelectionMode();
@@ -421,7 +459,7 @@ class _ReviewPageState extends State<ReviewPage>
       child: ClipRRect(
         borderRadius: BorderRadius.circular(100),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
           child: Stack(
             children: [
               Positioned(
@@ -442,16 +480,12 @@ class _ReviewPageState extends State<ReviewPage>
                 ),
               ),
               AnimatedBuilder(
-                animation: _tabCtrl,
-                builder: (context, child) => AnimatedPositioned(
-                  duration: const Duration(milliseconds: 600),
-                  curve: Curves.easeInOutQuart,
+                animation: _tabCtrl.animation!,
+                builder: (context, child) => Positioned(
                   top: 8,
                   bottom: 8,
                   left: _dockPillLeft(),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 600),
-                    curve: Curves.easeInOutQuart,
+                  child: Container(
                     width: _dockPillWidth(),
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -502,7 +536,7 @@ class _ReviewPageState extends State<ReviewPage>
     const padding = 8.0;
     final width = (MediaQuery.of(context).size.width - 48);
     final itemWidth = (width - 2) / 3;
-    return padding + _tabCtrl.index * (itemWidth + 1.0);
+    return padding + (_tabCtrl.animation?.value ?? _tabCtrl.index) * (itemWidth + 1.0);
   }
 
   double _dockPillWidth() {
@@ -652,7 +686,8 @@ class _ReviewPageState extends State<ReviewPage>
     final toDt = _parseDateOnly(req['to_date']);
     final from = fromDt != null ? DateFormat('dd MMM').format(fromDt) : '—';
     final to = toDt != null ? DateFormat('dd MMM').format(toDt) : '—';
-    final username = req['username'] ?? 'Staff';
+    final displayName = req['full_name'] ?? req['employee_name'] ?? req['username'] ?? 'Staff';
+    final username = req['username'] ?? '—';
     final totalDays = req['total_days'] ?? 0;
     final id = req['id'] as int;
     final isSelected = _selectedLeaveIds.contains(id);
@@ -699,11 +734,19 @@ class _ReviewPageState extends State<ReviewPage>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          username,
+                          displayName,
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 16,
                             color: _black,
+                          ),
+                        ),
+                        Text(
+                          '($username)',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: _mediumGray,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         Row(
@@ -819,7 +862,8 @@ class _ReviewPageState extends State<ReviewPage>
   }
 
   Widget _permissionRequestCard(Map<String, dynamic> req) {
-    final username = req['username'] ?? 'Staff';
+    final displayName = req['full_name'] ?? req['employee_name'] ?? req['username'] ?? 'Staff';
+    final username = req['username'] ?? '—';
     final date = req['date'] ?? '';
     final minutes = req['permission_minutes'] ?? 0;
     final type = req['permission_type'] == 'late_checkin'
@@ -870,11 +914,19 @@ class _ReviewPageState extends State<ReviewPage>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          username,
+                          displayName,
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 16,
                             color: _black,
+                          ),
+                        ),
+                        Text(
+                          '($username)',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: _mediumGray,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         Text(
@@ -1001,20 +1053,42 @@ class _ReviewPageState extends State<ReviewPage>
     String status, {
     required bool isLeave,
     bool silent = false,
+    String? note,
   }) async {
     if (!silent) {
+      final noteController = TextEditingController();
       final confirm = await Get.dialog<bool>(
         AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Text(
             status == 'approved' ? 'Approve Request?' : 'Reject Request?',
           ),
-          content: Text(
-            'Are you sure you want to $status this ${isLeave ? "leave" : "permission"} request?',
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Are you sure you want to $status this ${isLeave ? "leave" : "permission"} request?',
+                style: const TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: noteController,
+                decoration: InputDecoration(
+                  labelText: 'Note (Optional)',
+                  labelStyle: const TextStyle(fontSize: 13),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  hintText: 'Enter a reason or note...',
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
+                maxLines: 2,
+              ),
+            ],
           ),
           actions: [
             TextButton(
               onPressed: () => Get.back(result: false),
-              child: const Text('Cancel'),
+              child: const Text('Cancel', style: TextStyle(color: _mediumGray)),
             ),
             ElevatedButton(
               onPressed: () => Get.back(result: true),
@@ -1031,16 +1105,17 @@ class _ReviewPageState extends State<ReviewPage>
         ),
       );
       if (confirm != true) return;
+      final finalNote = noteController.text.trim();
 
       Get.showOverlay(
         asyncFunction: () =>
-            _processReview(id, status, isLeave: isLeave, silent: false),
+            _processReview(id, status, isLeave: isLeave, silent: false, note: finalNote.isEmpty ? null : finalNote),
         loadingWidget: const Center(
           child: CircularProgressIndicator(color: Colors.white),
         ),
       );
     } else {
-      await _processReview(id, status, isLeave: isLeave, silent: true);
+      await _processReview(id, status, isLeave: isLeave, silent: true, note: note);
     }
   }
 
@@ -1049,6 +1124,7 @@ class _ReviewPageState extends State<ReviewPage>
     String status, {
     required bool isLeave,
     bool silent = false,
+    String? note,
   }) async {
     if (!silent) {
       debugPrint('--- Review Action Initiated ---');
@@ -1071,7 +1147,7 @@ class _ReviewPageState extends State<ReviewPage>
           requestId: id,
           status: status,
           reviewedBy: adminId,
-          adminNote: 'Approved!!',
+          adminNote: note ?? (status == 'approved' ? 'Approved!' : 'Rejected'),
         );
         if (!silent) debugPrint('Leave review result: $result');
         if (!silent) _fetchLeaves();
@@ -1082,7 +1158,7 @@ class _ReviewPageState extends State<ReviewPage>
           requestId: id,
           status: status,
           reviewedBy: adminId,
-          adminNote: 'Approved!!',
+          adminNote: note ?? (status == 'approved' ? 'Approved!' : 'Rejected'),
         );
         if (!silent) debugPrint('Permission review result: $result');
         if (!silent) _fetchPermissions();
@@ -1123,39 +1199,158 @@ class _ReviewPageState extends State<ReviewPage>
     if (!silent) debugPrint('--- Review Action Finished ---');
   }
 
+  List<dynamic> get _filteredHistory {
+    return _historyRequests.where((req) {
+      // 1. Search Query Filter
+      final query = _searchQuery.toLowerCase();
+      final name = (req['employee_name'] ?? req['full_name'] ?? '').toString().toLowerCase();
+      final username = (req['username'] ?? '').toString().toLowerCase();
+      final reason = (req['reason'] ?? '').toString().toLowerCase();
+      final matchesSearch = query.isEmpty ||
+          name.contains(query) ||
+          username.contains(query) ||
+          reason.contains(query);
+
+      // 2. Date Range Filter
+      bool matchesDate = true;
+      if (_dateRange != null) {
+        final dateStr = req['reviewed_at'] ?? req['created_at'] ?? '';
+        final reqDate = _parseDateOnly(dateStr);
+        if (reqDate != null) {
+          // Compare only dates (strip time)
+          final start = DateTime(_dateRange!.start.year, _dateRange!.start.month, _dateRange!.start.day);
+          final end = DateTime(_dateRange!.end.year, _dateRange!.end.month, _dateRange!.end.day);
+          final target = DateTime(reqDate.year, reqDate.month, reqDate.day);
+          
+          matchesDate = (target.isAtSameMomentAs(start) || target.isAfter(start)) &&
+                        (target.isAtSameMomentAs(end) || target.isBefore(end));
+        }
+      }
+
+      return matchesSearch && matchesDate;
+    }).toList();
+  }
+
   Widget _buildHistoryTab() {
     if (_loadingHistory) {
       return const Center(child: CircularProgressIndicator(color: _black));
     }
 
-    if (_historyRequests.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.history_rounded, size: 64, color: _lightGray),
-            const SizedBox(height: 16),
-            const Text(
-              'No processing history found',
-              style: TextStyle(
-                color: _mediumGray,
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+    final filtered = _filteredHistory;
 
-    return RefreshIndicator(
-      onRefresh: _fetchHistory,
-      color: _black,
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-        itemCount: _historyRequests.length,
-        itemBuilder: (context, index) {
-          final req = _historyRequests[index];
+    return Column(
+      children: [
+        // ── Filter Header ──────────────────────────────────────────────────
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          decoration: const BoxDecoration(
+            color: _pureWhite,
+            border: Border(bottom: BorderSide(color: _softGray)),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: _offWhite,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: TextField(
+                        controller: _searchCtrl,
+                        onChanged: (v) => setState(() => _searchQuery = v),
+                        decoration: const InputDecoration(
+                          hintText: 'Search history...',
+                          hintStyle: TextStyle(fontSize: 14, color: _mediumGray),
+                          prefixIcon: Icon(Icons.search_rounded, size: 20, color: _mediumGray),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  GestureDetector(
+                    onTap: () async {
+                      final picked = await showDateRangePicker(
+                        context: context,
+                        initialDateRange: _dateRange,
+                        firstDate: DateTime(2023),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                        builder: (context, child) {
+                          return Theme(
+                            data: Theme.of(context).copyWith(
+                              colorScheme: const ColorScheme.light(
+                                primary: _black,
+                                onPrimary: _pureWhite,
+                                onSurface: _black,
+                              ),
+                            ),
+                            child: child!,
+                          );
+                        },
+                      );
+                      if (picked != null) {
+                        setState(() => _dateRange = picked);
+                      }
+                    },
+                    child: Container(
+                      height: 44,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: _black,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.date_range_rounded, color: _pureWhite, size: 20),
+                    ),
+                  ),
+                ],
+              ),
+              if (_dateRange != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      '${DateFormat('dd MMM').format(_dateRange!.start)} - ${DateFormat('dd MMM').format(_dateRange!.end)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: _mediumGray,
+                      ),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => setState(() => _dateRange = null),
+                      child: const Text(
+                        'Clear Range',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _softRed,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+
+        // ── History List ───────────────────────────────────────────────────
+        Expanded(
+          child: filtered.isEmpty
+              ? _emptyState('No history matches your filters')
+              : RefreshIndicator(
+                  onRefresh: _fetchHistory,
+                  color: _black,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+                    itemCount: filtered.length,
+                    itemBuilder: (context, index) {
+                      final req = filtered[index];
           final type = req['_type'] as String;
           final status = req['status'] as String;
           final isLeave = type == 'leave';
@@ -1239,13 +1434,19 @@ class _ReviewPageState extends State<ReviewPage>
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              req['employee_name'] ??
-                                  req['full_name'] ??
-                                  'Unknown User',
+                              req['employee_name'] ?? req['full_name'] ?? req['username'] ?? 'Unknown User',
                               style: const TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
                                 color: _black,
+                              ),
+                            ),
+                            Text(
+                              '(${req['username'] ?? '—'})',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: _mediumGray,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -1259,6 +1460,26 @@ class _ReviewPageState extends State<ReviewPage>
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
+                            if (req['reason'] != null &&
+                                req['reason'].toString().isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: _offWhite,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  'Reason: ${req['reason']}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: _charcoal,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
                             if (req['admin_note'] != null &&
                                 req['admin_note'].toString().isNotEmpty) ...[
                               const SizedBox(height: 12),
@@ -1269,13 +1490,29 @@ class _ReviewPageState extends State<ReviewPage>
                                   color: _offWhite,
                                   borderRadius: BorderRadius.circular(10),
                                 ),
-                                child: Text(
-                                  'Note: ${req['admin_note']}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: _darkGray,
-                                    fontStyle: FontStyle.italic,
-                                  ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Note: ${req['admin_note']}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: _darkGray,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                    if (req['reviewed_by_name'] != null) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Processed by: ${req['reviewed_by_name']} (${req['reviewed_by_username']})',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: _mediumGray.withOpacity(0.8),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
                             ],
@@ -1290,6 +1527,9 @@ class _ReviewPageState extends State<ReviewPage>
           );
         },
       ),
-    );
-  }
+    ),
+  ),
+],
+);
+}
 }

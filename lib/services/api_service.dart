@@ -162,6 +162,20 @@ class ApiService {
     }
   }
 
+  // Get users whose birthday is today
+  static Future<List<dynamic>> getBirthdays() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/employees/birthdays'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load birthdays');
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
   // Get user profile by ID
   static Future<Map<String, dynamic>> getUserProfile(int userId) async {
     try {
@@ -992,6 +1006,42 @@ class ApiService {
     }
   }
 
+  // Get Long Absentees
+  static Future<Map<String, dynamic>> getLongAbsentees({
+    int page = 1,
+    int limit = 15,
+    String? search,
+    int minDays = 4,
+  }) async {
+    try {
+      final queryParams = <String, String>{
+        'page': page.toString(),
+        'limit': limit.toString(),
+        'min_days': minDays.toString(),
+      };
+      if (search != null && search.isNotEmpty) {
+        queryParams['search'] = search;
+      }
+
+      final uri = Uri.parse(
+        '$baseUrl/employees/long-absents',
+      ).replace(queryParameters: queryParams);
+
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to load long absentees');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
   // Get employee by ID
   static Future<Map<String, dynamic>?> getEmployeeById(int userId) async {
     try {
@@ -1133,6 +1183,7 @@ class ApiService {
     required String toDate,
     required double elDays,
     required double clDays,
+    required double lopDays,
     String? reason,
     int? approverId,
     String session = 'full',
@@ -1147,6 +1198,7 @@ class ApiService {
           'to_date': toDate,
           'el_days': elDays,
           'cl_days': clDays,
+          'lop_days': lopDays,
           if (reason != null && reason.isNotEmpty) 'reason': reason,
           if (approverId != null) 'approver_id': approverId,
           'session': session,
@@ -1187,6 +1239,7 @@ class ApiService {
     required String toDate,
     required double elDays,
     required double clDays,
+    required double lopDays,
     String? reason,
     String session = 'full',
   }) async {
@@ -1199,6 +1252,7 @@ class ApiService {
           'to_date': toDate,
           'el_days': elDays,
           'cl_days': clDays,
+          'lop_days': lopDays,
           'reason': reason,
           'session': session,
         }),

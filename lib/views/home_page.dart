@@ -16,6 +16,8 @@ import 'settings_page.dart';
 import 'daily_attendance_page.dart';
 import 'review_page.dart';
 import '../widgets/electric_refresh_indicator.dart';
+import 'package:confetti/confetti.dart';
+import 'package:lottie/lottie.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -97,6 +99,13 @@ class _HomePageState extends State<HomePage>
   static const Color _softGreen = Color(0xFF29A331);
   static const Color _softRed = Color(0xFFD32F2F);
 
+  // Birthday Celebration
+  late ConfettiController _confettiController;
+  late ConfettiController _leftConfettiController;
+  late ConfettiController _rightConfettiController;
+  List<dynamic> _todayBirthdays = [];
+  bool _hasShownBirthdayWish = false;
+
   @override
   void initState() {
     super.initState();
@@ -112,6 +121,20 @@ class _HomePageState extends State<HomePage>
     _loadMonthlyPerformance();
     _loadSites();
     _loadApprovalCounts();
+    _loadBirthdays();
+    _loadUserProfile();
+
+    _confettiController =
+        ConfettiController(duration: const Duration(seconds: 10));
+    _leftConfettiController =
+        ConfettiController(duration: const Duration(seconds: 10));
+    _rightConfettiController =
+        ConfettiController(duration: const Duration(seconds: 10));
+
+    // Check for user's own birthday after a short delay
+    Future.delayed(const Duration(seconds: 2), () {
+      _checkUserBirthday();
+    });
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
@@ -209,7 +232,244 @@ class _HomePageState extends State<HomePage>
     _fireController.dispose();
     _scrollController.dispose();
     _vibrationTimer?.cancel();
+    _confettiController.dispose();
+    _leftConfettiController.dispose();
+    _rightConfettiController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadBirthdays() async {
+    try {
+      final birthdays = await ApiService.getBirthdays();
+      if (mounted) {
+        setState(() {
+          _todayBirthdays = birthdays;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading birthdays: $e');
+    }
+  }
+
+  void _checkUserBirthday() {
+    final user = storage.read('user');
+    debugPrint('🎂 Checking birthday status: is_birthday=${user?['is_birthday']}, hasShown=$_hasShownBirthdayWish');
+    if (user != null && user['is_birthday'] == true && !_hasShownBirthdayWish) {
+      _hasShownBirthdayWish = true;
+      _showBirthdayCelebration(
+        user['full_name'] ?? user['employee_name'],
+        user['pfp'] as String?,
+      );
+    }
+  }
+
+  void _showBirthdayCelebration(String name, String? pfp) {
+    final random = math.Random();
+    
+    // Significantly increased, randomized delays for side bursts to create distinct "rhythms"
+    Future.delayed(Duration(milliseconds: (2000 + random.nextInt(2000)).toInt()), () {
+      if (mounted) _leftConfettiController.play();
+    });
+    Future.delayed(Duration(milliseconds: (6000 + random.nextInt(4000)).toInt()), () {
+      if (mounted) _rightConfettiController.play();
+    });
+
+    Get.bottomSheet(
+      WillPopScope(
+        onWillPop: () async {
+          _leftConfettiController.stop();
+          _rightConfettiController.stop();
+          return true;
+        },
+        child: Container(
+          height: MediaQuery.of(context).size.height,
+          width: MediaQuery.of(context).size.width,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // Bottom Sheet Content - FIRST child so it's behind the confetti
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    color: _pureWhite,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(36)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 20,
+                        spreadRadius: 5,
+                      )
+                    ],
+                  ),
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: _lightGray,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      
+                      // Celebration Header: Profile Pic OR Lottie
+                      if (pfp != null && pfp.isNotEmpty)
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.amber, width: 4),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.amber.withOpacity(0.3),
+                                blurRadius: 20,
+                                spreadRadius: 5,
+                              )
+                            ],
+                          ),
+                          child: CircleAvatar(
+                            radius: 60, // Slightly larger since it's the main focus
+                            backgroundColor: _offWhite,
+                            backgroundImage: CachedNetworkImageProvider(
+                              '${ApiService.baseUrl}$pfp',
+                            ),
+                          ),
+                        )
+                      else
+                        Lottie.network(
+                          'https://lottie.host/8254c2d3-176c-4b6a-9b6f-856758416d82/m6vLzS8fS0.json',
+                          height: 180,
+                          repeat: true,
+                          errorBuilder: (context, error, stackTrace) =>
+                              const Icon(Icons.celebration, size: 100, color: Colors.amber),
+                        ),
+                      
+                      const SizedBox(height: 24),
+                      const Text(
+                        'HAPPY BIRTHDAY!',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                          color: _charcoal,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        name.toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: _mediumGray,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Wishing you a fantastic day filled with joy, success, and wonderful surprises!',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: _darkGray,
+                          height: 1.5,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 32),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            _leftConfettiController.stop();
+                            _rightConfettiController.stop();
+                            Get.back();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _charcoal,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 18),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'THANK YOU',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // Left Side Burst - AFTER content so it's on top
+              Positioned(
+                left: -30,
+                top: MediaQuery.of(context).size.height * 0.35,
+                child: ConfettiWidget(
+                  confettiController: _leftConfettiController,
+                  blastDirection: 0, // Burst to the right
+                  blastDirectionality: BlastDirectionality.directional,
+                  emissionFrequency: 0.01,
+                  numberOfParticles: 15,
+                  maxBlastForce: 25,
+                  minBlastForce: 15,
+                  gravity: 0.3,
+                  shouldLoop: true,
+                  colors: const [
+                    Colors.green,
+                    Colors.blue,
+                    Colors.pink,
+                    Colors.orange,
+                    Colors.purple,
+                    Colors.yellow,
+                    Colors.cyan
+                  ],
+                ),
+              ),
+              // Right Side Burst - AFTER content so it's on top
+              Positioned(
+                right: -30,
+                top: MediaQuery.of(context).size.height * 0.45,
+                child: ConfettiWidget(
+                  confettiController: _rightConfettiController,
+                  blastDirection: 3.14, // Burst to the left (pi)
+                  blastDirectionality: BlastDirectionality.directional,
+                  emissionFrequency: 0.01,
+                  numberOfParticles: 15,
+                  maxBlastForce: 25,
+                  minBlastForce: 15,
+                  gravity: 0.3,
+                  shouldLoop: true,
+                  colors: const [
+                    Colors.purple,
+                    Colors.orange,
+                    Colors.cyan,
+                    Colors.pink,
+                    Colors.yellow,
+                    Colors.green,
+                    Colors.blue
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.75),
+      enterBottomSheetDuration: const Duration(milliseconds: 600),
+      exitBottomSheetDuration: const Duration(milliseconds: 1000), // Smooth and slow close
+    );
   }
 
   Future<void> _loadUserProfile() async {
@@ -226,7 +486,10 @@ class _HomePageState extends State<HomePage>
         mergedData.addAll(updatedProfile);
 
         await storage.write('user', mergedData);
-        if (mounted) setState(() {}); // Trigger rebuild to update drawer
+        if (mounted) {
+          setState(() {}); // Trigger rebuild to update drawer
+          _checkUserBirthday(); // Check again after profile refresh
+        }
       }
     } catch (e) {
       debugPrint('❌ Error refreshing user profile: $e');
@@ -337,7 +600,7 @@ class _HomePageState extends State<HomePage>
         return;
       }
 
-      final effectiveApproverId = role != 'admin' ? userId : null;
+      final effectiveApproverId = userId;
 
       final [leaves, permissions] = await Future.wait([
         ApiService.getAdminLeaveRequests(
@@ -3804,321 +4067,320 @@ class _HomePageState extends State<HomePage>
       if (_isNavigatingToCamera) return;
 
       String? chosenSite;
-      if (!hasRecord) {
-        // --- CHECK-IN FLOW: Site is mandatory ---
-        if (sites.isNotEmpty) {
-          String searchQuery = '';
-          bool searchById = false;
-          final searchCtrl = TextEditingController();
-          chosenSite = await showModalBottomSheet<String>(
-            context: context,
-            backgroundColor: Colors.transparent,
-            isScrollControlled: true,
-            builder: (ctx) {
-              return StatefulBuilder(
-                builder: (ctx, setStateBtm) {
-                  final query = searchQuery.toLowerCase().trim();
+      // --- ALWAYS SHOW SITE SELECTION (Check-in or Check-out) ---
+      if (sites.isNotEmpty) {
+        String searchQuery = '';
+        bool searchById = false;
+        final searchCtrl = TextEditingController();
+        chosenSite = await showModalBottomSheet<String>(
+          context: context,
+          backgroundColor: Colors.transparent,
+          isScrollControlled: true,
+          builder: (ctx) {
+            return StatefulBuilder(
+              builder: (ctx, setStateBtm) {
+                final query = searchQuery.toLowerCase().trim();
 
-                  final filteredSites = sites.where((s) {
-                    if (query.isEmpty) return true;
-                    if (searchById) {
-                      final siteId = (s['site_id']?.toString() ?? '')
-                          .toLowerCase();
-                      return siteId.startsWith(query);
-                    } else {
-                      final siteName = (s['site_name']?.toString() ?? '')
-                          .toLowerCase();
-                      return siteName.contains(query);
-                    }
-                  }).toList();
-
-                  if (searchById && query.isNotEmpty) {
-                    filteredSites.sort((a, b) {
-                      final idA = (a['site_id']?.toString() ?? '')
-                          .toLowerCase();
-                      final idB = (b['site_id']?.toString() ?? '')
-                          .toLowerCase();
-                      if (idA == query && idB != query) return -1;
-                      if (idB == query && idA != query) return 1;
-                      return idA.compareTo(idB);
-                    });
+                final filteredSites = sites.where((s) {
+                  if (query.isEmpty) return true;
+                  if (searchById) {
+                    final siteId = (s['site_id']?.toString() ?? '')
+                        .toLowerCase();
+                    return siteId.startsWith(query);
+                  } else {
+                    final siteName = (s['site_name']?.toString() ?? '')
+                        .toLowerCase();
+                    return siteName.contains(query);
                   }
+                }).toList();
 
-                  Widget _buildToggleBtn(bool isId, String label) {
-                    final active = searchById == isId;
-                    return Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setStateBtm(() {
-                            searchById = isId;
-                            searchQuery = '';
-                            searchCtrl.clear();
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: BoxDecoration(
-                            color: active ? _charcoal : Colors.transparent,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: active ? _charcoal : _lightGray,
-                            ),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            label,
-                            style: TextStyle(
-                              color: active ? _pureWhite : _mediumGray,
-                              fontWeight: active
-                                  ? FontWeight.w600
-                                  : FontWeight.w500,
-                              fontSize: 13,
-                            ),
+                if (searchById && query.isNotEmpty) {
+                  filteredSites.sort((a, b) {
+                    final idA = (a['site_id']?.toString() ?? '')
+                        .toLowerCase();
+                    final idB = (b['site_id']?.toString() ?? '')
+                        .toLowerCase();
+                    if (idA == query && idB != query) return -1;
+                    if (idB == query && idA != query) return 1;
+                    return idA.compareTo(idB);
+                  });
+                }
+
+                Widget _buildToggleBtn(bool isId, String label) {
+                  final active = searchById == isId;
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setStateBtm(() {
+                          searchById = isId;
+                          searchQuery = '';
+                          searchCtrl.clear();
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(
+                          color: active ? _charcoal : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: active ? _charcoal : _lightGray,
                           ),
                         ),
-                      ),
-                    );
-                  }
-
-                  return Container(
-                    constraints: BoxConstraints(
-                      maxHeight: MediaQuery.of(context).size.height * 0.8,
-                    ),
-                    decoration: const BoxDecoration(
-                      color: _pureWhite,
-                      borderRadius: BorderRadius.vertical(
-                        top: Radius.circular(24),
-                      ),
-                    ),
-                    padding: EdgeInsets.only(
-                      top: 24,
-                      left: 16,
-                      right: 16,
-                      bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Select Site for Check-in',
+                        alignment: Alignment.center,
+                        child: Text(
+                          label,
                           style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: _charcoal,
+                            color: active ? _pureWhite : _mediumGray,
+                            fontWeight: active
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            fontSize: 13,
                           ),
                         ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            _buildToggleBtn(false, 'By Name'),
-                            const SizedBox(width: 8),
-                            _buildToggleBtn(true, 'By ID'),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: searchCtrl,
-                          decoration: InputDecoration(
-                            hintText: searchById
-                                ? 'Search by Site ID'
-                                : 'Search by Site Name',
-                            prefixIcon: const Icon(
-                              Icons.search,
-                              color: _charcoal,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: _lightGray),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: _charcoal),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              vertical: 0,
-                              horizontal: 16,
-                            ),
-                          ),
-                          onChanged: (val) {
-                            setStateBtm(() {
-                              searchQuery = val;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        Flexible(
-                          child: ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: filteredSites.isEmpty
-                                ? 1
-                                : filteredSites.length + 1,
-                            separatorBuilder: (_, __) =>
-                                const Divider(color: _lightGray),
-                            itemBuilder: (ctx, i) {
-                              // "Others" tile — always shown as the last item
-                              if (filteredSites.isEmpty ||
-                                  i == filteredSites.length) {
-                                return ListTile(
-                                  leading: const Icon(
-                                    Icons.edit_location_alt_outlined,
-                                    color: _charcoal,
-                                  ),
-                                  title: const Text(
-                                    'Others',
-                                    style: TextStyle(
-                                      color: _charcoal,
-                                      fontWeight: FontWeight.w500,
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                  ),
-                                  subtitle: const Text(
-                                    'Specify a custom site',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: _mediumGray,
-                                    ),
-                                  ),
-                                  onTap: () async {
-                                    final otherCtrl = TextEditingController();
-                                    final typed = await showDialog<String>(
-                                      context: ctx,
-                                      barrierDismissible: false,
-                                      builder: (dCtx) => AlertDialog(
-                                        title: const Text('Specify Site'),
-                                        content: TextField(
-                                          controller: otherCtrl,
-                                          autofocus: true,
-                                          textCapitalization:
-                                              TextCapitalization.words,
-                                          decoration: const InputDecoration(
-                                            hintText: 'Enter site name',
-                                            border: OutlineInputBorder(),
-                                          ),
-                                        ),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () =>
-                                                Navigator.pop(dCtx),
-                                            child: const Text('Cancel'),
-                                          ),
-                                          ElevatedButton(
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: _charcoal,
-                                              foregroundColor: _pureWhite,
-                                            ),
-                                            onPressed: () {
-                                              final val = otherCtrl.text.trim();
-                                              if (val.isNotEmpty) {
-                                                Navigator.pop(dCtx, val);
-                                              }
-                                            },
-                                            child: const Text('Confirm'),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                    if (typed != null && typed.isNotEmpty) {
-                                      Navigator.pop(ctx, '(others)-$typed');
-                                    }
-                                  },
-                                );
-                              }
-                              final s = filteredSites[i];
-                              return ListTile(
-                                leading: const Icon(
-                                  Icons.location_on_outlined,
-                                  color: _softRed,
-                                ),
-                                title: Text(
-                                  s['site_name'],
-                                  style: const TextStyle(
-                                    color: _charcoal,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                trailing: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: _charcoal.withOpacity(0.05),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    'ID: ${s['site_id'] ?? ''}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: _charcoal,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                                onTap: () => Navigator.pop(ctx, s['site_name']),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   );
-                },
-              );
-            },
-          );
-          if (chosenSite == null) return; // cancelled check-in
-        } else {
-          // --- SITES LIST IS EMPTY: Force manual entry for check-in ---
-          final otherCtrl = TextEditingController();
-          chosenSite = await showDialog<String>(
-            context: context,
-            barrierDismissible: false,
-            builder: (dCtx) => AlertDialog(
-              title: const Text('Specify Site'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'No predefined sites found. Please enter your current site name to check-in.',
+                }
+
+                return Container(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.8,
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: otherCtrl,
-                    autofocus: true,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: const InputDecoration(
-                      hintText: 'Enter site name',
-                      border: OutlineInputBorder(),
+                  decoration: const BoxDecoration(
+                    color: _pureWhite,
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
                     ),
                   ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dCtx),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _charcoal,
-                    foregroundColor: _pureWhite,
+                  padding: EdgeInsets.only(
+                    top: 24,
+                    left: 16,
+                    right: 16,
+                    bottom: MediaQuery.of(context).viewInsets.bottom + 16,
                   ),
-                  onPressed: () {
-                    final val = otherCtrl.text.trim();
-                    if (val.isNotEmpty) {
-                      Navigator.pop(dCtx, val);
-                    }
-                  },
-                  child: const Text('Confirm'),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        hasRecord
+                            ? 'Select Site for Check-out'
+                            : 'Select Site for Check-in',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: _charcoal,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          _buildToggleBtn(false, 'By Name'),
+                          const SizedBox(width: 8),
+                          _buildToggleBtn(true, 'By ID'),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: searchCtrl,
+                        decoration: InputDecoration(
+                          hintText: searchById
+                              ? 'Search by Site ID'
+                              : 'Search by Site Name',
+                          prefixIcon: const Icon(
+                            Icons.search,
+                            color: _charcoal,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: _lightGray),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: _charcoal),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 0,
+                            horizontal: 16,
+                          ),
+                        ),
+                        onChanged: (val) {
+                          setStateBtm(() {
+                            searchQuery = val;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Flexible(
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: filteredSites.isEmpty
+                              ? 1
+                              : filteredSites.length + 1,
+                          separatorBuilder: (_, __) =>
+                              const Divider(color: _lightGray),
+                          itemBuilder: (ctx, i) {
+                            // "Others" tile — always shown as the last item
+                            if (filteredSites.isEmpty ||
+                                i == filteredSites.length) {
+                              return ListTile(
+                                leading: const Icon(
+                                  Icons.edit_location_alt_outlined,
+                                  color: _charcoal,
+                                ),
+                                title: const Text(
+                                  'Others',
+                                  style: TextStyle(
+                                    color: _charcoal,
+                                    fontWeight: FontWeight.w500,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                                subtitle: const Text(
+                                  'Specify a custom site',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: _mediumGray,
+                                  ),
+                                ),
+                                onTap: () async {
+                                  final otherCtrl = TextEditingController();
+                                  final typed = await showDialog<String>(
+                                    context: ctx,
+                                    barrierDismissible: false,
+                                    builder: (dCtx) => AlertDialog(
+                                      title: const Text('Specify Site'),
+                                      content: TextField(
+                                        controller: otherCtrl,
+                                        autofocus: true,
+                                        textCapitalization:
+                                            TextCapitalization.words,
+                                        decoration: const InputDecoration(
+                                          hintText: 'Enter site name',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(dCtx),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: _charcoal,
+                                            foregroundColor: _pureWhite,
+                                          ),
+                                          onPressed: () {
+                                            final val = otherCtrl.text.trim();
+                                            if (val.isNotEmpty) {
+                                              Navigator.pop(dCtx, val);
+                                            }
+                                          },
+                                          child: const Text('Confirm'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (typed != null && typed.isNotEmpty) {
+                                    Navigator.pop(ctx, '(others)-$typed');
+                                  }
+                                },
+                              );
+                            }
+                            final s = filteredSites[i];
+                            return ListTile(
+                              leading: const Icon(
+                                Icons.location_on_outlined,
+                                color: _softRed,
+                              ),
+                              title: Text(
+                                s['site_name'],
+                                style: const TextStyle(
+                                  color: _charcoal,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              trailing: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _charcoal.withOpacity(0.05),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  'ID: ${s['site_id'] ?? ''}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: _charcoal,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              onTap: () => Navigator.pop(ctx, s['site_name']),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+        if (chosenSite == null) return; // cancelled site selection
+      } else {
+        // --- SITES LIST IS EMPTY: Force manual entry ---
+        final otherCtrl = TextEditingController();
+        chosenSite = await showDialog<String>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dCtx) => AlertDialog(
+            title: const Text('Specify Site'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  hasRecord
+                      ? 'No predefined sites found. Please enter your current site name to check-out.'
+                      : 'No predefined sites found. Please enter your current site name to check-in.',
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: otherCtrl,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    hintText: 'Enter site name',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
               ],
             ),
-          );
-          if (chosenSite == null) return; // cancelled check-in
-        }
-      } else {
-        // --- CHECK-OUT FLOW: No site picker needed (backend inherits site) ---
-        chosenSite = null;
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dCtx),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _charcoal,
+                  foregroundColor: _pureWhite,
+                ),
+                onPressed: () {
+                  final val = otherCtrl.text.trim();
+                  if (val.isNotEmpty) {
+                    Navigator.pop(dCtx, val);
+                  }
+                },
+                child: const Text('Confirm'),
+              ),
+            ],
+          ),
+        );
+        if (chosenSite == null) return; // cancelled site selection
       }
 
       _isNavigatingToCamera = true;

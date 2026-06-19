@@ -83,6 +83,10 @@ dependencies:
   # Cached network image for lazy loading
   cached_network_image: ^3.3.1
 
+  # Animation packages for birthday celebration
+  lottie: ^3.1.2
+  confetti: ^0.7.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

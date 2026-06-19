@@ -201,24 +201,18 @@ class _Header extends StatelessWidget {
                 _HeaderIconBtn(
                   icon: Icons.chevron_left_rounded,
                   tooltip: 'Previous month',
-                  onTap: () {
+                   onTap: () {
                     HapticFeedback.lightImpact();
                     controller.goToPreviousMonth();
-                    controller.fetchHolidays(
-                      controller.focusedMonth.value.year,
-                    );
                   },
                 ),
                 const SizedBox(width: 8),
                 _HeaderIconBtn(
                   icon: Icons.chevron_right_rounded,
                   tooltip: 'Next month',
-                  onTap: () {
+                   onTap: () {
                     HapticFeedback.lightImpact();
                     controller.goToNextMonth();
-                    controller.fetchHolidays(
-                      controller.focusedMonth.value.year,
-                    );
                   },
                 ),
               ],
@@ -462,6 +456,7 @@ class _DayCell extends StatelessWidget {
       final isSun = controller.isSunday(date);
       final isHol = controller.isHoliday(date);
       final isApproved = controller.isApprovedLeave(date);
+      final isPresent = controller.isPresent(date);
       final isStart = controller.isRangeStart(date);
       final isEnd = controller.isRangeEnd(date);
       final inRange = controller.isInRange(date);
@@ -470,13 +465,19 @@ class _DayCell extends StatelessWidget {
 
       final today = DateTime.now();
       final normalizedToday = DateTime(today.year, today.month, today.day);
+      final firstDayOfCurrentMonth = DateTime(today.year, today.month, 1);
       final isPast = date.isBefore(normalizedToday);
+      final isFromPreviousMonth = date.isBefore(firstDayOfCurrentMonth);
 
       final bool isSelected = isStart || isEnd;
       final bool hasEnd = controller.rangeEnd.value != null;
       final bool hasBothEnds = hasEnd;
 
-      final bool isBlocked = isPast || isApproved || isSun || isHol;
+      // Past dates are now selectable (to cover previous absences)
+      // but ONLY if they belong to the current month.
+      // Sundays, Holidays, and Previous Month dates remain blocked.
+      // Exception: Today is not blocked even if checked in (isPresent) for half-day leaves.
+      final bool isBlocked = isApproved || isSun || isHol || (isPresent && !isToday) || isFromPreviousMonth;
 
       // ── Determine text colour ───────────────────────────────────────
       Color textColor;
@@ -484,12 +485,17 @@ class _DayCell extends StatelessWidget {
         textColor = Colors.white;
       } else if (isApproved) {
         textColor = const Color(0xFFB0B0B0);
-      } else if (isPast) {
-        textColor = const Color(0xFFCCCCCC);
       } else if (isSun) {
         textColor = const Color(0xFFD32F2F);
       } else if (isHol) {
         textColor = const Color(0xFFE65100);
+      } else if (isFromPreviousMonth) {
+        textColor = const Color(0xFFCCCCCC); // Grayed out for previous months
+      } else if (isPast) {
+        // Past dates of CURRENT MONTH that are not blocked get a slightly different color to distinguish them
+        textColor = const Color(0xFF666666);
+      } else if (isPresent) {
+        textColor = const Color(0xFF2E7D32); // Green for present days
       } else {
         textColor = const Color(0xFF111111);
       }
@@ -508,6 +514,8 @@ class _DayCell extends StatelessWidget {
           isStart: isStart,
           isEnd: isEnd,
           inRange: inRange,
+          isPresent: isPresent,
+          isToday: isToday,
           holiday: holiday,
         ),
         button: !isBlocked,
@@ -594,6 +602,22 @@ class _DayCell extends StatelessWidget {
                   ),
                 ),
 
+               // ── Present day ring ─────────────────────────────────────────
+              if (isPresent && !isSelected)
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFF2E7D32).withOpacity(0.3),
+                        width: 1,
+                      ),
+                    ),
+                  ),
+                ),
+
               // ── Today ring ────────────────────────────────────────────
               if (isToday && !isSelected)
                 Center(
@@ -643,8 +667,10 @@ class _DayCell extends StatelessWidget {
                           if (isToday && !isSelected) const SizedBox(width: 3),
                           _dot(const Color(0xFFE65100)),
                         ],
-                        if (isSun && !isHol && !isSelected)
+                         if (isSun && !isHol && !isSelected)
                           _dot(const Color(0xFFD32F2F)),
+                        if (isPresent && !isSelected)
+                          _dot(const Color(0xFF2E7D32)),
                       ],
                     ),
                   ],
@@ -666,8 +692,6 @@ class _DayCell extends StatelessWidget {
           ),
         ),
       );
-
-      // Tooltip for holiday name
     });
   }
 
@@ -686,12 +710,17 @@ class _DayCell extends StatelessWidget {
     required bool isStart,
     required bool isEnd,
     required bool inRange,
+    required bool isPresent,
+    required bool isToday,
     required dynamic holiday,
   }) {
     final parts = <String>[];
     parts.add('${date.day} ${_monthName(date.month)} ${date.year}');
-    if (isPast) parts.add('past date, not selectable');
     if (isApproved) parts.add('already approved leave, not selectable');
+    final now = DateTime.now();
+    final firstDayOfCurrentMonth = DateTime(now.year, now.month, 1);
+    if (date.isBefore(firstDayOfCurrentMonth)) parts.add('previous month, not selectable');
+    if (isPresent && !isToday) parts.add('present day, not selectable');
     if (isSun) parts.add('Sunday');
     if (isHol && holiday != null) parts.add('Holiday: ${holiday.name}');
     if (isStart) parts.add('selected as start');
@@ -746,6 +775,7 @@ class _Legend extends StatelessWidget {
             filled: true,
           ),
           _LegendItem(color: Color(0xFFD32F2F), label: 'Sunday'),
+          _LegendItem(color: Color(0xFF2E7D32), label: 'Present'),
           _LegendItem(color: Color(0xFFE65100), label: 'Holiday'),
           _LegendItem(color: Color(0xFFE8F0FE), label: 'Range', filled: true),
         ],

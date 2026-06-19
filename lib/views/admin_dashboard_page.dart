@@ -15,10 +15,11 @@ class AdminDashboardPage extends StatefulWidget {
   _AdminDashboardPageState createState() => _AdminDashboardPageState();
 }
 
-class _AdminDashboardPageState extends State<AdminDashboardPage> {
+class _AdminDashboardPageState extends State<AdminDashboardPage> with TickerProviderStateMixin {
   final storage = GetStorage();
   Map<String, dynamic>? dashboardData;
   bool isLoading = true;
+  late TabController _tabCtrl;
   int _tab = 0; // 0=Overview, 1=Live, 2=Insights
 
   // Premium monochrome palette
@@ -39,12 +40,24 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   @override
   void initState() {
     super.initState();
+    _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl.addListener(() {
+      if (_tabCtrl.index != _tab) {
+        setState(() => _tab = _tabCtrl.index);
+      }
+    });
     _loadDashboardData();
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
   }
 
   void _setTab(int i) {
     HapticFeedback.selectionClick();
-    setState(() => _tab = i);
+    _tabCtrl.animateTo(i);
   }
 
   Future<void> _loadDashboardData() async {
@@ -81,8 +94,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                           ? _buildErrorContent()
                           : ElectricRefreshIndicator(
                               onRefresh: _loadDashboardData,
-                              child: IndexedStack(
-                                index: _tab,
+                              child: TabBarView(
+                                controller: _tabCtrl,
                                 children: [
                                   _buildOverviewTab(),
                                   _buildLiveTab(),
@@ -290,7 +303,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
             children: [
               _buildSectionTitle('OT Heavylifters (Month)'),
               TextButton(
-                onPressed: () => Get.toNamed('/fleet-reports'),
+                onPressed: () => Get.toNamed('/leaderboard'),
                 style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
                 child: const Text('View All', style: TextStyle(color: _purple, fontSize: 12, fontWeight: FontWeight.w700)),
               ),
@@ -304,7 +317,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
             children: [
               _buildSectionTitle('Long Absences (>4 Days)'),
               TextButton(
-                onPressed: () => Get.toNamed('/admin-attendance'), // Assuming attendance is the best view for this
+                onPressed: () => Get.toNamed('/long-absentees'),
                 style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
                 child: const Text('View All', style: TextStyle(color: _softRed, fontSize: 12, fontWeight: FontWeight.w700)),
               ),
@@ -535,7 +548,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           final emp = ot[index];
           final otMins = _toInt(emp['total_ot']);
           return ListTile(
-            onTap: () => Get.toNamed('/fleet-reports'),
+            onTap: () => Get.toNamed('/leaderboard'),
             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
             leading: Text('#${index + 1}', style: const TextStyle(fontWeight: FontWeight.w900, color: _mediumGray)),
             title: Text(emp['username'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: _charcoal)),
@@ -558,7 +571,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         itemBuilder: (context, index) {
           final emp = absents[index];
           return ListTile(
-            onTap: () => Get.toNamed('/admin-attendance'),
+            onTap: () => Get.toNamed('/long-absentees'),
             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
             title: Text(emp['username'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: _charcoal)),
             trailing: Container(
@@ -603,20 +616,21 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(100),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: Stack(
             children: [
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeOutBack,
-                left: _dockPillLeft() + 4,
-                top: 0,
-                bottom: 0,
-                child: Container(
-                  width: _dockPillWidth() - 8,
-                  decoration: BoxDecoration(
-                    color: _pureWhite,
-                    borderRadius: BorderRadius.circular(100),
+              AnimatedBuilder(
+                animation: _tabCtrl.animation!,
+                builder: (context, child) => Positioned(
+                  left: _dockPillLeft() + 4,
+                  top: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: _dockPillWidth() - 8,
+                    decoration: BoxDecoration(
+                      color: _pureWhite,
+                      borderRadius: BorderRadius.circular(100),
+                    ),
                   ),
                 ),
               ),
@@ -637,7 +651,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   double _dockPillLeft() {
     final width = MediaQuery.of(context).size.width - 40; 
     final itemWidth = (width - 16) / 3;
-    return _tab * itemWidth;
+    return (_tabCtrl.animation?.value ?? _tabCtrl.index) * itemWidth;
   }
 
   double _dockPillWidth() {

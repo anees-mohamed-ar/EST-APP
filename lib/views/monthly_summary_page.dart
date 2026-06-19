@@ -25,7 +25,7 @@ class MonthlySummaryPage extends StatefulWidget {
   _MonthlySummaryPageState createState() => _MonthlySummaryPageState();
 }
 
-class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
+class _MonthlySummaryPageState extends State<MonthlySummaryPage> with TickerProviderStateMixin {
   final storage = GetStorage();
   Map<String, dynamic>? monthlyData;
   bool isLoading = true;
@@ -47,17 +47,30 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
   static const Color _softGreen = Color(0xFF2E7D32);
   static const Color _softRed = Color(0xFFC62828);
 
+  late TabController _tabCtrl;
   int _tab = 0; // 0=Summary, 1=Daily
 
   @override
   void initState() {
     super.initState();
+    _tabCtrl = TabController(length: 2, vsync: this);
+    _tabCtrl.addListener(() {
+      if (_tabCtrl.index != _tab) {
+        setState(() => _tab = _tabCtrl.index);
+      }
+    });
     _loadMonthlyData();
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
   }
 
   void _setTab(int i) {
     HapticFeedback.selectionClick();
-    setState(() => _tab = i);
+    _tabCtrl.animateTo(i);
   }
 
   Future<void> _loadMonthlyData() async {
@@ -147,8 +160,8 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
                           )
                         : monthlyData == null
                             ? _buildErrorContent()
-                            : IndexedStack(
-                                index: _tab,
+                            : TabBarView(
+                                controller: _tabCtrl,
                                 children: [
                                   _buildSummaryTab(),
                                   _buildDailyTab(),
@@ -484,6 +497,7 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
     final dayStatus = day['day_status'] as String? ?? 'present';
     final isOvernight = day['is_overnight'] == true;
     final isLeave = dayStatus == 'leave';
+    final isInformedLop = dayStatus == 'informed (lop)';
 
     final parsedDate = DateTime.parse(date);
     final dayName = DateFormat('EEEE').format(parsedDate);
@@ -498,6 +512,9 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
     } else if (isLeave) {
       cardBg = Colors.orange.withOpacity(0.05);
       borderColor = Colors.orange.withOpacity(0.2);
+    } else if (isInformedLop) {
+      cardBg = _softRed.withOpacity(0.05);
+      borderColor = _softRed.withOpacity(0.2);
     }
 
     return Container(
@@ -539,6 +556,10 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
               const Spacer(),
               if (isLeave) ...[
                 _buildTypeBadge('Leave', color: Colors.orange),
+                const SizedBox(width: 6),
+              ],
+              if (isInformedLop) ...[
+                _buildTypeBadge('LOP', color: _softRed),
                 const SizedBox(width: 6),
               ],
               if (isOvernight) ...[
@@ -710,27 +731,28 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(100),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: Stack(
             children: [
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeOutBack,
-                left: _dockPillLeft() + 4,
-                top: 0,
-                bottom: 0,
-                child: Container(
-                  width: _dockPillWidth() - 8,
-                  decoration: BoxDecoration(
-                    color: _pureWhite,
-                    borderRadius: BorderRadius.circular(100),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      )
-                    ],
+              AnimatedBuilder(
+                animation: _tabCtrl.animation!,
+                builder: (context, child) => Positioned(
+                  left: _dockPillLeft() + 4,
+                  top: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: _dockPillWidth() - 8,
+                    decoration: BoxDecoration(
+                      color: _pureWhite,
+                      borderRadius: BorderRadius.circular(100),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        )
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -750,7 +772,7 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> {
   double _dockPillLeft() {
     final width = MediaQuery.of(context).size.width - 48; 
     final itemWidth = (width - 16) / 2;
-    return _tab * itemWidth;
+    return (_tabCtrl.animation?.value ?? _tabCtrl.index) * itemWidth;
   }
 
   double _dockPillWidth() {

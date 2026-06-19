@@ -22,6 +22,8 @@ class LeaveCalendarController extends GetxController {
   final RxBool isLoadingHolidays = false.obs;
   final RxString errorMessage = ''.obs;
   final RxBool isHalfDayMode = false.obs;
+  final RxSet<String> presentDays = <String>{}.obs;
+  int? userId;
 
   // Computed: selected date range as list
   List<DateTime> get selectedRange {
@@ -90,6 +92,9 @@ class LeaveCalendarController extends GetxController {
   bool isApprovedLeave(DateTime date) =>
       approvedLeaveDays.contains(_dayKey(date));
 
+  bool isPresent(DateTime date) =>
+      presentDays.contains(_dayKey(date));
+
   Holiday? getHoliday(DateTime date) {
     try {
       return holidays.firstWhere(
@@ -124,11 +129,16 @@ class LeaveCalendarController extends GetxController {
       a.year == b.year && a.month == b.month && a.day == b.day;
 
   void onDayTapped(DateTime date) {
-    // Don't allow selecting past dates
-    final today = DateTime.now();
-    final normalizedToday = DateTime(today.year, today.month, today.day);
+    // Allow selecting past dates (e.g. to cover previous absences)
+    // BUT only for the CURRENT MONTH (payroll constraint)
+    final now = DateTime.now();
+    final firstDayOfCurrentMonth = DateTime(now.year, now.month, 1);
     final normalizedDate = DateTime(date.year, date.month, date.day);
-    if (normalizedDate.isBefore(normalizedToday)) return;
+    
+    if (normalizedDate.isBefore(firstDayOfCurrentMonth)) {
+      errorMessage.value = 'Leave cannot be applied for previous months as payroll is already processed.';
+      return;
+    }
 
     // Don't allow selecting already-approved leave dates
     if (isApprovedLeave(normalizedDate)) {
@@ -143,6 +153,12 @@ class LeaveCalendarController extends GetxController {
     }
     if (isHoliday(normalizedDate)) {
       errorMessage.value = 'That day is a public holiday.';
+      return;
+    }
+
+    // Don't allow selecting days that already have attendance entries (except today)
+    if (isPresent(normalizedDate) && !isToday(normalizedDate)) {
+      errorMessage.value = 'You were present on this day. Leave can only be applied for absences.';
       return;
     }
 
@@ -213,6 +229,7 @@ class LeaveCalendarController extends GetxController {
       focusedMonth.value.year,
       focusedMonth.value.month - 1,
     );
+    _onMonthChanged();
   }
 
   void goToNextMonth() {
@@ -220,6 +237,15 @@ class LeaveCalendarController extends GetxController {
       focusedMonth.value.year,
       focusedMonth.value.month + 1,
     );
+    _onMonthChanged();
+  }
+
+  void _onMonthChanged() {
+    fetchHolidays(focusedMonth.value.year);
+    if (userId != null) {
+      fetchApprovedLeaveDays(userId!);
+      fetchPresentDays(userId!, focusedMonth.value);
+    }
   }
 
   void clearSelection() {
@@ -289,6 +315,29 @@ class LeaveCalendarController extends GetxController {
         ..addAll(blocked);
     } catch (_) {
       // Do not block calendar usage if this fails.
+    }
+  }
+
+  /// Fetches attendance records for the month to identify present days
+  Future<void> fetchPresentDays(int userId, DateTime month) async {
+    try {
+      final startOfMonth = DateTime(month.year, month.month, 1);
+      final endOfMonth = DateTime(month.year, month.month + 1, 0);
+
+      final data = await ApiService.getMonthlyAttendance(
+        userId,
+        startDate: startOfMonth,
+        endDate: endOfMonth,
+      );
+
+      final breakdown = data['daily_breakdown'] as List<dynamic>? ?? [];
+      final Set<String> days = breakdown.map((b) => b['date'].toString()).toSet();
+
+      presentDays
+        ..clear()
+        ..addAll(days);
+    } catch (_) {
+      // Fail silently
     }
   }
 

@@ -30,6 +30,7 @@ class _PermissionPageState extends State<PermissionPage>
   static const Color _blue = Color(0xFF2563EB);
   static const Color _orange = Color(0xFFF59E0B);
 
+  late TabController _tabCtrl;
   int _tab = 0; // 0=Apply, 1=History
 
   DateTime _selectedDate = DateTime.now();
@@ -57,6 +58,12 @@ class _PermissionPageState extends State<PermissionPage>
   @override
   void initState() {
     super.initState();
+    _tabCtrl = TabController(length: 2, vsync: this);
+    _tabCtrl.addListener(() {
+      if (_tabCtrl.index != _tab) {
+        setState(() => _tab = _tabCtrl.index);
+      }
+    });
     _fetchHistory();
     final user = storage.read('user') ?? {};
     _hasAcceptAccess =
@@ -226,6 +233,7 @@ class _PermissionPageState extends State<PermissionPage>
 
   void _setTab(int i) {
     HapticFeedback.selectionClick();
+    _tabCtrl.animateTo(i);
     setState(() => _tab = i);
     if (i == 1) _fetchHistory();
   }
@@ -237,26 +245,35 @@ class _PermissionPageState extends State<PermissionPage>
       child: Scaffold(
         backgroundColor: _bg,
         resizeToAvoidBottomInset: false,
-        body: Stack(
-          children: [
-            Column(
-              children: [
-                _buildAppBar(),
-                Expanded(
-                  child: IndexedStack(
-                    index: _tab,
-                    children: [_buildApplyTab(), _buildHistoryTab()],
+        body: PopScope(
+          canPop: _tabCtrl.index == 0,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            if (_tabCtrl.index != 0) {
+              _setTab(0);
+            }
+          },
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  _buildAppBar(),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabCtrl,
+                      children: [_buildApplyTab(), _buildHistoryTab()],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            Positioned(
-              bottom: MediaQuery.of(context).padding.bottom + 16,
-              left: 24,
-              right: 24,
-              child: _buildDock(),
-            ),
-          ],
+                ],
+              ),
+              Positioned(
+                bottom: MediaQuery.of(context).padding.bottom + 16,
+                left: 24,
+                right: 24,
+                child: _buildDock(),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -274,7 +291,13 @@ class _PermissionPageState extends State<PermissionPage>
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => Get.back(),
+            onTap: () {
+              if (_tabCtrl.index != 0) {
+                _setTab(0);
+              } else {
+                Get.back();
+              }
+            },
             child: Container(
               padding: const EdgeInsets.all(9),
               decoration: BoxDecoration(
@@ -954,10 +977,117 @@ class _PermissionPageState extends State<PermissionPage>
                     ),
                   ),
                 ],
+
+                // ── Approval Info ──────────────────────────────────────────
+                const Padding(
+                  padding: EdgeInsets.only(top: 16, bottom: 8),
+                  child: Divider(height: 1, color: _bg),
+                ),
+                if (isPending) ...[
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.person_search_rounded,
+                            size: 16,
+                            color: _mediumGray,
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Target Approvers:',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _mediumGray,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: (p['approver_name']?.toString() ?? 
+                                  'Hierarchy')
+                            .split(', ')
+                            .map((name) => Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _bg,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: _lightGray.withOpacity(0.5), width: 1),
+                                  ),
+                                  child: Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: _charcoal,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ))
+                            .toList(),
+                      ),
+                    ],
+                  ),
+                ] else if (p['reviewed_by_username'] != null) ...[
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.verified_user_outlined,
+                            size: 16,
+                            color: isAppr ? _green : _red,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            isAppr ? 'Approved by:' : 'Rejected by:',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _mediumGray,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: (p['reviewed_by_name']?.toString() ?? 
+                                  p['reviewed_by_username']?.toString() ?? 
+                                  'Unknown')
+                            .split(', ')
+                            .map((name) => Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: (isAppr ? _green : _red).withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: (isAppr ? _green : _red).withOpacity(0.2), width: 1),
+                                  ),
+                                  child: Text(
+                                    name,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: isAppr ? _green : _red,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ))
+                            .toList(),
+                      ),
+                    ],
+                  ),
+                ],
+
                 if (!isPending &&
                     p['admin_note'] != null &&
                     p['admin_note'].toString().isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(10),
@@ -1011,7 +1141,7 @@ class _PermissionPageState extends State<PermissionPage>
       child: ClipRRect(
         borderRadius: BorderRadius.circular(100),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: Stack(
             children: [
               Positioned(
@@ -1031,26 +1161,25 @@ class _PermissionPageState extends State<PermissionPage>
                   ),
                 ),
               ),
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 600),
-                curve: Curves.easeInOutQuart,
-                top: 8,
-                bottom: 8,
-                left: _dockPillLeft(),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 600),
-                  curve: Curves.easeInOutQuart,
-                  width: _dockPillWidth(),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(100),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.12),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
+              AnimatedBuilder(
+                animation: _tabCtrl.animation!,
+                builder: (context, child) => Positioned(
+                  top: 8,
+                  bottom: 8,
+                  left: _dockPillLeft(),
+                  child: Container(
+                    width: _dockPillWidth(),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(100),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.12),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1082,7 +1211,7 @@ class _PermissionPageState extends State<PermissionPage>
     const padding = 8.0;
     final width = (MediaQuery.of(context).size.width - 48);
     final itemWidth = (width - 1) / 2;
-    return padding + _tab * (itemWidth + 1.0);
+    return padding + (_tabCtrl.animation?.value ?? _tabCtrl.index) * (itemWidth + 1.0);
   }
 
   double _dockPillWidth() {

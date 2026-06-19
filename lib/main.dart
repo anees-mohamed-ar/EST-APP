@@ -23,6 +23,7 @@ import 'views/admin_vehicle_reports_page.dart';
 import 'views/leave_page.dart';
 import 'views/permission_page.dart';
 import 'views/hierarchy_management_page.dart';
+import 'views/long_absentees_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -94,6 +95,7 @@ class MyApp extends StatelessWidget {
         GetPage(name: '/leave', page: () => const LeavePage()),
         GetPage(name: '/permission', page: () => const PermissionPage()),
         GetPage(name: '/hierarchy', page: () => const HierarchyManagementPage()),
+        GetPage(name: '/long-absentees', page: () => const LongAbsenteesPage()),
       ],
     );
   }
