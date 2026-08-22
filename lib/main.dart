@@ -24,6 +24,8 @@ import 'views/leave_page.dart';
 import 'views/permission_page.dart';
 import 'views/hierarchy_management_page.dart';
 import 'views/long_absentees_page.dart';
+// import 'views/payroll_download_page.dart'; // commented out — replaced by payslip_page.dart
+import 'views/payslip_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -96,6 +98,17 @@ class MyApp extends StatelessWidget {
         GetPage(name: '/permission', page: () => const PermissionPage()),
         GetPage(name: '/hierarchy', page: () => const HierarchyManagementPage()),
         GetPage(name: '/long-absentees', page: () => const LongAbsenteesPage()),
+        GetPage(
+          name: '/payroll',
+          page: () {
+            final args = Get.arguments as Map<String, dynamic>? ?? {};
+            // New payslip page: uses username to fetch admin-uploaded payslips
+            return PayslipPage(
+              username: args['username'] as String? ?? '',
+              displayName: args['displayName'] as String? ?? '',
+            );
+          },
+        ),
       ],
     );
   }

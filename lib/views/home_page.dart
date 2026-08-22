@@ -18,6 +18,7 @@ import 'review_page.dart';
 import '../widgets/electric_refresh_indicator.dart';
 import 'package:confetti/confetti.dart';
 import 'package:lottie/lottie.dart';
+import 'payroll_download_page.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -26,6 +27,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final storage = GetStorage();
   final LocationService _locationService = LocationService();
   bool _isLocationEnabled = true;
@@ -746,6 +748,43 @@ class _HomePageState extends State<HomePage>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
+                if (storage.read('user')?['pfp'] != null &&
+                    storage.read('user')!['pfp'].toString().isNotEmpty)
+                  _buildPickerOption(
+                    icon: Icons.visibility_outlined,
+                    label: 'View Photo',
+                    onTap: () {
+                      final pfp = storage.read('user')?['pfp'];
+                      Navigator.pop(ctx);
+                      if (pfp != null && pfp.toString().isNotEmpty) {
+                        Get.to(
+                          () => Scaffold(
+                            backgroundColor: Colors.black,
+                            appBar: AppBar(
+                              backgroundColor: Colors.black,
+                              iconTheme: const IconThemeData(color: Colors.white),
+                              title: const Text(
+                                'Profile Picture',
+                                style: TextStyle(color: Colors.white, fontSize: 16),
+                              ),
+                            ),
+                            body: Center(
+                              child: InteractiveViewer(
+                                child: CachedNetworkImage(
+                                  imageUrl: '${ApiService.baseUrl}$pfp',
+                                  fit: BoxFit.contain,
+                                  placeholder: (_, __) => const Center(
+                                    child: CircularProgressIndicator(color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          transition: Transition.fadeIn,
+                        );
+                      }
+                    },
+                  ),
                 _buildPickerOption(
                   icon: Icons.camera_alt_outlined,
                   label: 'Camera',
@@ -990,8 +1029,9 @@ class _HomePageState extends State<HomePage>
 
   Widget _buildDrawer(dynamic userData) {
     final pfp = userData['pfp'] as String?;
+    final employeeName = (userData['employee_name'] ?? userData['full_name'] ?? userData['name'] ?? userData['username'] ?? 'User').toString().trim();
     final username = userData['username']?.toString() ?? 'User';
-    final initial = username.isNotEmpty ? username[0].toUpperCase() : '?';
+    final initial = employeeName.isNotEmpty ? employeeName[0].toUpperCase() : (username.isNotEmpty ? username[0].toUpperCase() : '?');
 
     return Drawer(
       backgroundColor: _pureWhite,
@@ -1010,73 +1050,74 @@ class _HomePageState extends State<HomePage>
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 GestureDetector(
-                  onTap: () {
-                    if (pfp != null && pfp.isNotEmpty) {
-                      Get.back(); // close drawer
-                      Get.to(
-                        () => Scaffold(
-                          backgroundColor: Colors.black,
-                          appBar: AppBar(
-                            backgroundColor: Colors.black,
-                            iconTheme: const IconThemeData(color: Colors.white),
+                  onTap: _changePfp,
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: 120,
+                        height: 120,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _charcoal.withOpacity(0.08),
+                          border: Border.all(
+                            color: _charcoal.withOpacity(0.1),
+                            width: 2,
                           ),
-                          body: Center(
-                            child: InteractiveViewer(
-                              child: CachedNetworkImage(
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: pfp != null && pfp.isNotEmpty
+                            ? CachedNetworkImage(
                                 imageUrl: '${ApiService.baseUrl}$pfp',
-                                fit: BoxFit.contain,
-                                placeholder: (_, __) => const Center(
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
+                                fit: BoxFit.cover,
+                                memCacheWidth: 240,
+                                memCacheHeight: 240,
+                                placeholder: (_, __) => Center(
+                                  child: Text(
+                                    initial,
+                                    style: const TextStyle(
+                                      fontSize: 48,
+                                      fontWeight: FontWeight.w700,
+                                      color: _charcoal,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : Center(
+                                child: Text(
+                                  initial,
+                                  style: const TextStyle(
+                                    fontSize: 48,
+                                    fontWeight: FontWeight.w700,
+                                    color: _charcoal,
                                   ),
                                 ),
                               ),
-                            ),
+                      ),
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: _pureWhite,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: _lightGray, width: 1.5),
+                            boxShadow: [
+                              BoxShadow(
+                                color: _pureBlack.withOpacity(0.1),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.camera_alt_rounded,
+                            size: 16,
+                            color: _charcoal,
                           ),
                         ),
-                        transition: Transition.fadeIn,
-                      );
-                    }
-                  },
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _charcoal.withOpacity(0.08),
-                      border: Border.all(
-                        color: _charcoal.withOpacity(0.1),
-                        width: 2,
                       ),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: pfp != null && pfp.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: '${ApiService.baseUrl}$pfp',
-                            fit: BoxFit.cover,
-                            memCacheWidth: 240,
-                            memCacheHeight: 240,
-                            placeholder: (_, __) => Center(
-                              child: Text(
-                                initial,
-                                style: const TextStyle(
-                                  fontSize: 48,
-                                  fontWeight: FontWeight.w700,
-                                  color: _charcoal,
-                                ),
-                              ),
-                            ),
-                          )
-                        : Center(
-                            child: Text(
-                              initial,
-                              style: const TextStyle(
-                                fontSize: 48,
-                                fontWeight: FontWeight.w700,
-                                color: _charcoal,
-                              ),
-                            ),
-                          ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -1390,54 +1431,84 @@ class _HomePageState extends State<HomePage>
         return confirmed;
       },
       child: Scaffold(
+        key: _scaffoldKey,
         backgroundColor: _offWhite,
-        drawer: _buildDrawer(userData),
-        body: Stack(
-          children: [
-            ElectricRefreshIndicator(
-              onRefresh: () async {
-                await Future.wait([
-                  _loadUserProfile(),
-                  _loadTodayAttendance(),
-                  _loadMonthlyAttendance(),
-                  _loadMonthlyPerformance(),
-                  _loadSites(),
-                  _loadApprovalCounts(),
-                ]);
-              },
-              color: _charcoal,
-              backgroundColor: _pureWhite,
-              child: CustomScrollView(
-                controller: _scrollController,
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverAppBar(
-                    expandedHeight: 0,
-                    floating: true,
-                    pinned: true,
-                    backgroundColor: _pureWhite,
-                    elevation: 0,
-                    automaticallyImplyLeading: false,
-                    iconTheme: const IconThemeData(color: _charcoal),
-                    leading: Builder(
-                      builder: (context) {
-                        final totalApprovals =
-                            _pendingLeaveCount + _pendingPermissionCount;
-                        final acceptAccess =
-                            userData['accept_access'] == 1 ||
-                            userData['accept_access'] == true;
+        drawerEnableOpenDragGesture: true,
+        drawerEdgeDragWidth: MediaQuery.of(context).size.width,
+        drawer: (userData['is_active'] == 0 || userData['is_active'] == false || userData['is_active'] == '0')
+            ? null
+            : _buildDrawer(userData),
+        body: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragEnd: (details) {
+            final isActiveUser = userData['is_active'] != 0 &&
+                userData['is_active'] != false &&
+                userData['is_active'] != '0';
+            if (isActiveUser && (details.primaryVelocity ?? 0) > 200) {
+              if (_scaffoldKey.currentState != null && !_scaffoldKey.currentState!.isDrawerOpen) {
+                _scaffoldKey.currentState!.openDrawer();
+              }
+            }
+          },
+          child: Stack(
+            children: [
+              ElectricRefreshIndicator(
+                onRefresh: () async {
+                  await Future.wait([
+                    _loadUserProfile(),
+                    _loadTodayAttendance(),
+                    _loadMonthlyAttendance(),
+                    _loadMonthlyPerformance(),
+                    _loadSites(),
+                    _loadApprovalCounts(),
+                  ]);
+                },
+                color: _charcoal,
+                backgroundColor: _pureWhite,
+                child: CustomScrollView(
+                  controller: _scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverAppBar(
+                      expandedHeight: 0,
+                      floating: true,
+                      pinned: true,
+                      backgroundColor: _pureWhite,
+                      elevation: 0,
+                      automaticallyImplyLeading: false,
+                      iconTheme: const IconThemeData(color: _charcoal),
+                      leading: Builder(
+                        builder: (context) {
+                          final isActiveUser = userData['is_active'] != 0 &&
+                              userData['is_active'] != false &&
+                              userData['is_active'] != '0';
 
-                        return Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.menu_rounded),
-                              color: _charcoal,
-                              onPressed: () =>
-                                  Scaffold.of(context).openDrawer(),
-                            ),
-                            if (acceptAccess &&
-                                !_isLoadingApprovalCounts &&
+                          if (!isActiveUser) {
+                            return const SizedBox.shrink();
+                          }
+
+                          final totalApprovals =
+                              _pendingLeaveCount + _pendingPermissionCount;
+                          final acceptAccess =
+                              userData['accept_access'] == 1 ||
+                              userData['accept_access'] == true;
+
+                          return Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.menu_rounded),
+                                color: _charcoal,
+                                onPressed: () {
+                                  if (_scaffoldKey.currentState != null) {
+                                    _scaffoldKey.currentState!.openDrawer();
+                                  } else {
+                                    Scaffold.of(context).openDrawer();
+                                  }
+                                },
+                              ),
+                              if (acceptAccess &&
+                                  !_isLoadingApprovalCounts &&
                                 totalApprovals > 0)
                               Positioned(
                                 right: 6,
@@ -1498,133 +1569,252 @@ class _HomePageState extends State<HomePage>
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildProfileCard(greeting, name, role, now),
-                          const SizedBox(height: 24),
-                          _buildStatusCard(
-                            cardHasCheckedIn,
-                            cardHasCheckedOut,
-                            firstIn,
-                            lastOut,
-                            firstInDate,
-                            lastOutDate,
-                          ),
-                          const SizedBox(height: 24),
+                      child: Builder(
+                        builder: (context) {
+                          final isActiveUser = userData['is_active'] == 1 ||
+                              userData['is_active'] == true ||
+                              userData['is_active'] == '1' ||
+                              userData['is_active'] == null;
 
-                          _buildSectionHeader('QUICK ACTIONS'),
-                          const SizedBox(height: 16),
+                          if (!isActiveUser) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildProfileCard(greeting, name, role, now),
+                                const SizedBox(height: 24),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(24),
+                                  decoration: BoxDecoration(
+                                    color: _pureWhite,
+                                    borderRadius: BorderRadius.circular(24),
+                                    border: Border.all(
+                                      color: const Color(0xFFFECACA),
+                                      width: 1.5,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFFEF4444).withOpacity(0.06),
+                                        blurRadius: 20,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Container(
+                                        width: 56,
+                                        height: 56,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFEF2F2),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: const Color(0xFFFCA5A5),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: const Icon(
+                                          Icons.lock_person_outlined,
+                                          color: Color(0xFFDC2626),
+                                          size: 28,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const Text(
+                                        'Account Inactive',
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                          color: _charcoal,
+                                          letterSpacing: -0.3,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'You are currently not allowed to record attendance or access organization services.',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: _mediumGray,
+                                          fontWeight: FontWeight.w400,
+                                          height: 1.4,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                          vertical: 10,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFFFBEB),
+                                          borderRadius: BorderRadius.circular(14),
+                                          border: Border.all(
+                                            color: const Color(0xFFFDE68A),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: const [
+                                            Icon(
+                                              Icons.info_outline_rounded,
+                                              size: 18,
+                                              color: Color(0xFFD97706),
+                                            ),
+                                            SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                'Please contact your Administrator or HR department to activate your account.',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Color(0xFF92400E),
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 32),
+                              ],
+                            );
+                          }
 
-                          Row(
+                          return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: _buildCheckInButton(
-                                  hasCheckedIn,
-                                  hasCheckedOut,
-                                ),
+                              _buildProfileCard(greeting, name, role, now),
+                              const SizedBox(height: 24),
+                              _buildStatusCard(
+                                cardHasCheckedIn,
+                                cardHasCheckedOut,
+                                firstIn,
+                                lastOut,
+                                firstInDate,
+                                lastOutDate,
                               ),
-                              const SizedBox(width: 12),
-                              if ((userData['role']?.toString().toLowerCase() ==
-                                  'admin'))
-                                Expanded(
-                                  child: _buildActionCard(
-                                    icon: Icons.dashboard_outlined,
-                                    label: 'Dashboard',
-                                    sublabel: 'View overview',
-                                    onTap: () =>
-                                        Get.toNamed('/admin-dashboard'),
-                                  ),
-                                )
-                              else
-                                Expanded(
-                                  child: _buildActionCard(
-                                    icon: Icons.calendar_today_outlined,
-                                    label: 'History',
-                                    sublabel: 'View records',
-                                    onTap: () =>
-                                        Get.toNamed('/daily-attendance'),
-                                  ),
-                                ),
-                            ],
-                          ),
+                              const SizedBox(height: 24),
 
-                          if ((userData['role']?.toString().toLowerCase() ==
-                              'admin')) ...[
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildActionCard(
-                                    icon: Icons.admin_panel_settings_outlined,
-                                    label: 'Admin Panel',
-                                    sublabel: 'Manage attendance',
-                                    onTap: () =>
-                                        Get.toNamed('/admin-attendance'),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _buildActionCard(
-                                    icon: Icons.directions_car_outlined,
-                                    label: 'Vehicle Reports',
-                                    sublabel: 'Trips & Fuel logs',
-                                    onTap: () => Get.toNamed('/fleet-reports'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                              _buildSectionHeader('QUICK ACTIONS'),
+                              const SizedBox(height: 16),
 
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildActionCard(
-                                  icon: Icons.beach_access_outlined,
-                                  label: 'Leaves',
-                                  sublabel: 'Request Day off',
-                                  onTap: () => Get.toNamed('/leave'),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              if (userData['is_ot_eligible'] == 0)
-                                Expanded(
-                                  child: _buildActionCard(
-                                    icon: Icons.timer_outlined,
-                                    label: 'Permissions',
-                                    sublabel: 'Request 3hr permission',
-                                    onTap: () => Get.toNamed('/permission'),
-                                  ),
-                                )
-                              else
-                                Expanded(child: Container()),
-                            ],
-                          ),
-
-                          const SizedBox(height: 24),
-
-                          _buildMonthlySummaryCard(),
-
-                          const SizedBox(height: 24),
-
-                          _buildSectionHeader('MONTHLY PERFORMANCE'),
-                          const SizedBox(height: 16),
-
-                          isLoadingPerformance
-                              ? const Center(
-                                  child: Padding(
-                                    padding: EdgeInsets.all(40),
-                                    child: CircularProgressIndicator(
-                                      color: _charcoal,
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: _buildCheckInButton(
+                                      hasCheckedIn,
+                                      hasCheckedOut,
                                     ),
                                   ),
-                                )
-                              : _buildMonthlyInsights(),
+                                  const SizedBox(width: 12),
+                                  if ((userData['role']?.toString().toLowerCase() ==
+                                      'admin'))
+                                    Expanded(
+                                      child: _buildActionCard(
+                                        icon: Icons.dashboard_outlined,
+                                        label: 'Dashboard',
+                                        sublabel: 'View overview',
+                                        onTap: () =>
+                                            Get.toNamed('/admin-dashboard'),
+                                      ),
+                                    )
+                                  else
+                                    Expanded(
+                                      child: _buildActionCard(
+                                        icon: Icons.calendar_today_outlined,
+                                        label: 'History',
+                                        sublabel: 'View records',
+                                        onTap: () =>
+                                            Get.toNamed('/daily-attendance'),
+                                      ),
+                                    ),
+                                ],
+                              ),
 
-                          const SizedBox(height: 32),
-                        ],
+                              if ((userData['role']?.toString().toLowerCase() ==
+                                  'admin')) ...[
+                                const SizedBox(height: 16),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildActionCard(
+                                        icon: Icons.admin_panel_settings_outlined,
+                                        label: 'Admin Panel',
+                                        sublabel: 'Manage attendance',
+                                        onTap: () =>
+                                            Get.toNamed('/admin-attendance'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: _buildActionCard(
+                                        icon: Icons.directions_car_outlined,
+                                        label: 'Vehicle Reports',
+                                        sublabel: 'Trips & Fuel logs',
+                                        onTap: () => Get.toNamed('/fleet-reports'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildActionCard(
+                                      icon: Icons.beach_access_outlined,
+                                      label: 'Leaves',
+                                      sublabel: 'Request Day off',
+                                      onTap: () => Get.toNamed('/leave'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  if (userData['is_ot_eligible'] == 0)
+                                    Expanded(
+                                      child: _buildActionCard(
+                                        icon: Icons.timer_outlined,
+                                        label: 'Permissions',
+                                        sublabel: 'Request 3hr permission',
+                                        onTap: () => Get.toNamed('/permission'),
+                                      ),
+                                    )
+                                  else
+                                    Expanded(child: Container()),
+                                ],
+                              ),
+
+                              const SizedBox(height: 24),
+
+                              _buildMonthlySummaryCard(),
+
+                              // ── My Payroll download card (all users & admin) ─────
+                              const SizedBox(height: 12),
+                              _buildPayrollDownloadCard(userData),
+
+                              const SizedBox(height: 24),
+
+                              _buildSectionHeader('MONTHLY PERFORMANCE'),
+                              const SizedBox(height: 16),
+
+                              isLoadingPerformance
+                                  ? const Center(
+                                      child: Padding(
+                                        padding: EdgeInsets.all(40),
+                                        child: CircularProgressIndicator(
+                                          color: _charcoal,
+                                        ),
+                                      ),
+                                    )
+                                  : _buildMonthlyInsights(),
+
+                              const SizedBox(height: 32),
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -1647,8 +1837,9 @@ class _HomePageState extends State<HomePage>
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildMonthlySummaryCard() {
     final userData = storage.read('user');
@@ -2010,8 +2201,52 @@ class _HomePageState extends State<HomePage>
                 ],
               ),
             ),
-            if (_uploadProgress != null)
-              _buildUploadOverlay(_uploadProgress!, _uploadStatus),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPayrollDownloadCard(Map<String, dynamic> userData) {
+    return GestureDetector(
+      onTap: () {
+        Get.toNamed('/payroll', arguments: {
+          'userId': userData['id'] as int,
+          'displayName': userData['full_name'] ?? userData['username'] ?? '',
+          'username': userData['username'] ?? '',
+          'isAdminView': false,
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        decoration: BoxDecoration(
+          color: _pureBlack,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.download_rounded, size: 20, color: Colors.white),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('My Payroll',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white)),
+                  SizedBox(height: 2),
+                  Text('Download last 3 months as PDF',
+                      style: TextStyle(fontSize: 11, color: Colors.white60)),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.white54),
           ],
         ),
       ),
@@ -2164,22 +2399,48 @@ class _HomePageState extends State<HomePage>
   ) {
     final userData = storage.read('user');
     final pfp = userData?['pfp'];
+    final employeeName = (userData?['employee_name'] ?? userData?['full_name'] ?? name).toString().trim();
+    final initial = employeeName.isNotEmpty ? employeeName[0].toUpperCase() : (name.isNotEmpty ? name[0].toUpperCase() : '?');
+    final isActive = userData?['is_active'] == 1 ||
+        userData?['is_active'] == true ||
+        userData?['is_active'] == '1' ||
+        userData?['is_active'] == null;
 
     return RepaintBoundary(
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: _pureWhite,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: _lightGray, width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: _pureBlack.withOpacity(0.02),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
+      child: AnimatedBuilder(
+        animation: _timeShimmerAnimation,
+        builder: (context, child) {
+          final animVal = _timeShimmerAnimation.value;
+
+          return Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: _pureWhite,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isActive
+                    ? _lightGray
+                    : Color.lerp(
+                        const Color(0xFFFCA5A5),
+                        const Color(0xFFEF4444),
+                        (animVal.abs() * 2) % 1.0,
+                      )!,
+                width: isActive ? 1 : 1.8,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: isActive
+                      ? _pureBlack.withOpacity(0.02)
+                      : const Color(0xFFEF4444).withOpacity(0.08 + (0.06 * animVal.abs())),
+                  blurRadius: isActive ? 20 : 28,
+                  spreadRadius: isActive ? 0 : 2,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-          ],
-        ),
+            child: child,
+          );
+        },
         child: Stack(
           clipBehavior: Clip.none,
           children: [
@@ -2240,9 +2501,7 @@ class _HomePageState extends State<HomePage>
                                       )
                                     : Center(
                                         child: Text(
-                                          name.isNotEmpty
-                                              ? name[0].toUpperCase()
-                                              : '?',
+                                          initial,
                                           style: const TextStyle(
                                             color: _charcoal,
                                             fontSize: 26,
@@ -2301,25 +2560,116 @@ class _HomePageState extends State<HomePage>
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                          const SizedBox(height: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _offWhite,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: _lightGray, width: 1),
-                            ),
-                            child: Text(
-                              role.toUpperCase(),
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: _mediumGray,
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _offWhite,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: _lightGray, width: 1),
+                                ),
+                                child: Text(
+                                  role.toUpperCase(),
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: _mediumGray,
+                                  ),
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 6),
+                              AnimatedBuilder(
+                                animation: _timeShimmerAnimation,
+                                builder: (context, _) {
+                                  final isActive = userData?['is_active'] == 1 ||
+                                      userData?['is_active'] == true ||
+                                      userData?['is_active'] == '1' ||
+                                      userData?['is_active'] == null; // default to active if unset
+
+                                  final badgeBg = isActive
+                                      ? const Color(0xFFECFDF5)
+                                      : const Color(0xFFFEF2F2);
+                                  final badgeBorder = isActive
+                                      ? const Color(0xFFA7F3D0)
+                                      : const Color(0xFFFECACA);
+                                  final badgeDot = isActive
+                                      ? const Color(0xFF10B981)
+                                      : const Color(0xFFEF4444);
+                                  final badgeText = isActive
+                                      ? const Color(0xFF047857)
+                                      : const Color(0xFFB91C1C);
+
+                                  // Calculate pulsing wave value (between 0.0 and 1.0)
+                                  final pulseValue = (_timeShimmerAnimation.value.abs() * 2) % 1.0;
+
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: badgeBg,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: badgeBorder, width: 1),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Stack(
+                                          alignment: Alignment.center,
+                                          children: [
+                                            if (isActive)
+                                              Transform.scale(
+                                                scale: 1.0 + (pulseValue * 0.8),
+                                                child: Container(
+                                                  width: 6,
+                                                  height: 6,
+                                                  decoration: BoxDecoration(
+                                                    color: badgeDot.withOpacity(0.4 * (1.0 - pulseValue)),
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                ),
+                                              ),
+                                            Container(
+                                              width: 6,
+                                              height: 6,
+                                              decoration: BoxDecoration(
+                                                color: badgeDot,
+                                                shape: BoxShape.circle,
+                                                boxShadow: isActive
+                                                    ? [
+                                                        BoxShadow(
+                                                          color: badgeDot.withOpacity(0.6),
+                                                          blurRadius: 4,
+                                                          spreadRadius: 1,
+                                                        )
+                                                      ]
+                                                    : null,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          isActive ? 'ACTIVE' : 'INACTIVE',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w800,
+                                            color: badgeText,
+                                            letterSpacing: 0.3,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -4760,8 +5110,70 @@ class _HomePageState extends State<HomePage>
           );
         },
       );
+    } else if (error.contains('USER_INACTIVE') ||
+        error.toLowerCase().contains('not allowed') ||
+        error.toLowerCase().contains('administrator')) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: const [
+                Icon(Icons.block_rounded, size: 32, color: Colors.red),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Access Restricted',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'You are not allowed to record attendance.',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Your account has been deactivated or restricted by administrator. Please contact your manager or HR.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text('OK', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          );
+        },
+      );
     } else {
-      _showMessage('Failed to record attendance', isSuccess: false);
+      _showMessage(
+        error.replaceAll('Exception: ', ''),
+        isSuccess: false,
+      );
     }
   }
 
@@ -5255,3 +5667,4 @@ class _RingPainter extends CustomPainter {
   @override
   bool shouldRepaint(_RingPainter old) => old.progress != progress;
 }
+

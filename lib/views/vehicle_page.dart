@@ -17,16 +17,20 @@ import '../widgets/swipe_to_confirm.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
-const _bg     = Color(0xFFF4F5F7);
+const _bg     = Color(0xFFF8FAFC);
+const _card   = Color(0xFFFFFFFF);
 const _white  = Color(0xFFFFFFFF);
-const _black  = Color(0xFF0A0A0A);
-const _grey   = Color(0xFF6B7280);
-const _lgrey  = Color(0xFFE5E7EB);
-const _xlGrey = Color(0xFFF3F4F6);
-const _green  = Color(0xFF16A34A);
-const _red    = Color(0xFFDC2626);
-const _amber  = Color(0xFFD97706);
-const _blue   = Color(0xFF2563EB);
+const _black  = Color(0xFF0F172A); // Midnight Slate / Obsidian
+const _grey   = Color(0xFF64748B); // Cool Slate Grey
+const _lightGrey = Color(0xFF94A3B8);
+const _border = Color(0xFFE2E8F0);
+const _lgrey  = Color(0xFFE2E8F0);
+const _xlGrey = Color(0xFFF1F5F9);
+const _green  = Color(0xFF059669); // Emerald Green
+const _red    = Color(0xFFDC2626); // Crimson Red
+const _amber  = Color(0xFFD97706); // Warm Amber
+const _blue   = Color(0xFF2563EB); // Electric Indigo Blue
+const _indigo = Color(0xFF4F46E5);
 
 // ─── Shared widget helpers (top-level so all classes can use them) ─────────────
 
@@ -46,29 +50,29 @@ Widget _odoField({
       onTap: onTap,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       style: const TextStyle(
-          fontSize: 20, fontWeight: FontWeight.w700, color: _black, letterSpacing: -0.5),
+          fontSize: 20, fontWeight: FontWeight.w800, color: _black, letterSpacing: -0.5),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(
-          color: _grey.withValues(alpha: 0.5),
-          fontSize: hint.contains('first') || hint.contains('last') ? 14 : 20,
+          color: _grey.withValues(alpha: 0.6),
+          fontSize: hint.contains('first') || hint.contains('last') ? 14 : 18,
           fontWeight: FontWeight.w500,
         ),
         prefixIcon: isLocked ? const Icon(Icons.lock_rounded, color: _amber, size: 18) : null,
         filled: true,
-        fillColor: isLocked ? _amber.withOpacity(0.04) : (hasError ? _red.withOpacity(0.05) : (enabled ? _xlGrey : const Color(0xFFF9F9F9))),
+        fillColor: isLocked ? _amber.withValues(alpha: 0.05) : (hasError ? _red.withValues(alpha: 0.05) : (enabled ? _xlGrey : const Color(0xFFF9F9F9))),
         border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : BorderSide.none)),
+            borderRadius: BorderRadius.circular(14),
+            borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : const BorderSide(color: _border))),
         enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : BorderSide.none)),
+            borderRadius: BorderRadius.circular(14),
+            borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : const BorderSide(color: _border))),
         focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide(color: isLocked ? _amber : (hasError ? _red : _black), width: 1.5)),
         suffixText: 'km',
         suffixStyle:
-            const TextStyle(color: _grey, fontSize: 14, fontWeight: FontWeight.w600),
+            const TextStyle(color: _grey, fontSize: 13, fontWeight: FontWeight.w700),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       ),
@@ -85,17 +89,17 @@ Widget _locField({
       controller: controller,
       readOnly: isLocked,
       onTap: onTap,
-      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _black),
+      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _black),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: TextStyle(color: _grey.withValues(alpha: 0.5), fontSize: 16),
+        hintStyle: TextStyle(color: _grey.withValues(alpha: 0.6), fontSize: 14),
         prefixIcon: isLocked ? const Icon(Icons.lock_rounded, color: _amber, size: 16) : null,
         filled: true,
-        fillColor: isLocked ? _amber.withOpacity(0.04) : (hasError ? _red.withOpacity(0.05) : _xlGrey),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : BorderSide.none)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : BorderSide.none)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isLocked ? _amber : (hasError ? _red : _black), width: 1.5)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        fillColor: isLocked ? _amber.withValues(alpha: 0.05) : (hasError ? _red.withValues(alpha: 0.05) : _xlGrey),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : const BorderSide(color: _border))),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : const BorderSide(color: _border))),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: isLocked ? _amber : (hasError ? _red : _black), width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       ),
     );
 
@@ -115,17 +119,34 @@ Widget _numField({
       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _black),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: TextStyle(color: _grey.withValues(alpha: 0.5), fontSize: 16),
+        hintStyle: TextStyle(color: _grey.withValues(alpha: 0.6), fontSize: 15),
         prefixIcon: isLocked ? const Icon(Icons.lock_rounded, color: _amber, size: 16) : null,
         filled: true,
-        fillColor: isLocked ? _amber.withOpacity(0.04) : (hasError ? _red.withOpacity(0.05) : _xlGrey),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : BorderSide.none)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : BorderSide.none)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isLocked ? _amber : (hasError ? _red : _black), width: 1.5)),
+        fillColor: isLocked ? _amber.withValues(alpha: 0.05) : (hasError ? _red.withValues(alpha: 0.05) : _xlGrey),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : const BorderSide(color: _border))),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: isLocked ? const BorderSide(color: _amber, width: 1.5) : (hasError ? const BorderSide(color: _red, width: 1.5) : const BorderSide(color: _border))),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: isLocked ? _amber : (hasError ? _red : _black), width: 1.5)),
         suffixText: suffix,
-        suffixStyle: const TextStyle(color: _grey, fontSize: 14, fontWeight: FontWeight.w600),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        suffixStyle: const TextStyle(color: _grey, fontSize: 13, fontWeight: FontWeight.w700),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       ),
+    );
+
+Widget _vCard({required Widget child, EdgeInsets? padding}) => Container(
+      width: double.infinity,
+      padding: padding ?? const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
+        boxShadow: [
+          BoxShadow(
+              color: _black.withValues(alpha: 0.02),
+              blurRadius: 10,
+              offset: const Offset(0, 3))
+        ],
+      ),
+      child: child,
     );
 
 Widget _photoCapture({
@@ -373,22 +394,7 @@ Widget _bigButton({
       ),
     );
 
-Widget _vCard({required Widget child, EdgeInsets? padding}) => Container(
-      width: double.infinity,
-      padding: padding ?? const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: _white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _lgrey.withOpacity(0.6)),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4))
-        ],
-      ),
-      child: child,
-    );
+
 
 // ─── Entry ────────────────────────────────────────────────────────────────────
 class VehiclePage extends StatefulWidget {
@@ -1155,45 +1161,48 @@ class _VehiclePageState extends State<VehiclePage>
         .toString()
         .split(' ')
         .first;
-    const titles = ['Dashboard', 'Vehicle', 'Fuel Log'];
+    const titles = ['Vehicle Dashboard', 'Vehicle Trip', 'Fuel Logs'];
 
     return Container(
-      color: _white,
+      decoration: const BoxDecoration(
+        color: _white,
+        border: Border(bottom: BorderSide(color: _border, width: 1)),
+      ),
       padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 12,
-        bottom: 16, left: 20, right: 20,
+        top: MediaQuery.of(context).padding.top + 10,
+        bottom: 12, left: 20, right: 20,
       ),
       child: Row(children: [
         GestureDetector(
           onTap: () => Get.back(),
           child: Container(
-            padding: const EdgeInsets.all(9),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-                color: _xlGrey, borderRadius: BorderRadius.circular(11)),
+                color: _black.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(10)),
             child: const Icon(Icons.arrow_back_ios_new_rounded,
-                color: _black, size: 16),
+                color: _black, size: 15),
           ),
         ),
         const SizedBox(width: 14),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(titles[_tab],
               style: const TextStyle(
-                  fontSize: 20,
+                  fontSize: 18,
                   fontWeight: FontWeight.w800,
                   color: _black,
-                  letterSpacing: -0.5)),
+                  letterSpacing: -0.3)),
           Text('Hello, $name!',
               style: const TextStyle(
-                  fontSize: 12, color: _grey, fontWeight: FontWeight.w500)),
+                  fontSize: 11.5, color: _grey, fontWeight: FontWeight.w500)),
         ]),
         const Spacer(),
         GestureDetector(
           onTap: _boot,
           child: Container(
-            padding: const EdgeInsets.all(9),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-                color: _xlGrey, borderRadius: BorderRadius.circular(11)),
-            child: const Icon(Icons.refresh_rounded, color: _black, size: 18),
+                color: _black.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(10)),
+            child: const Icon(Icons.refresh_rounded, color: _black, size: 17),
           ),
         ),
       ]),
@@ -1933,23 +1942,23 @@ class _StatCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: _white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: _lgrey.withOpacity(0.5)),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _border),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withOpacity(0.02),
+                color: _black.withValues(alpha: 0.02),
                 blurRadius: 10,
-                offset: const Offset(0, 4))
+                offset: const Offset(0, 3))
           ],
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(7),
             decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(10),
+              color: iconColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, color: iconColor, size: 18),
+            child: Icon(icon, color: iconColor, size: 16),
           ),
           const Spacer(),
           Text(value,
@@ -1957,14 +1966,14 @@ class _StatCard extends StatelessWidget {
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
                   color: _black,
-                  letterSpacing: -0.6)),
+                  letterSpacing: -0.5)),
           const SizedBox(height: 1),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 10.5,
-                  color: _grey.withOpacity(0.8),
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.1)),
+          Text(label.toUpperCase(),
+              style: const TextStyle(
+                  fontSize: 9.5,
+                  color: _grey,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3)),
         ]),
       );
 }
@@ -2021,16 +2030,16 @@ class _ActionBtnState extends State<_ActionBtn> with SingleTickerProviderStateMi
             height: 140,
             decoration: BoxDecoration(
               color: _white,
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: widget.color.withOpacity(0.3 + (v * 0.4)),
-                width: 2 + (v * 1.5),
+                color: widget.color.withValues(alpha: 0.3 + (v * 0.4)),
+                width: 1.5 + (v * 1.0),
               ),
               boxShadow: [
                 BoxShadow(
-                  color: widget.color.withOpacity(0.1 + (v * 0.15)),
-                  blurRadius: 20 + (v * 15),
-                  spreadRadius: v * 5,
+                  color: widget.color.withValues(alpha: 0.08 + (v * 0.1)),
+                  blurRadius: 16 + (v * 10),
+                  spreadRadius: v * 3,
                   offset: const Offset(0, 4),
                 ),
               ],
@@ -2041,10 +2050,10 @@ class _ActionBtnState extends State<_ActionBtn> with SingleTickerProviderStateMi
                 Positioned.fill(
                   child: Container(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(22),
+                      borderRadius: BorderRadius.circular(19),
                       gradient: RadialGradient(
                         colors: [
-                          widget.color.withOpacity(0.05 + (v * 0.05)),
+                          widget.color.withValues(alpha: 0.04 + (v * 0.04)),
                           Colors.transparent,
                         ],
                         radius: 1.5 + v * 0.5,
@@ -2061,15 +2070,15 @@ class _ActionBtnState extends State<_ActionBtn> with SingleTickerProviderStateMi
                     children: [
                       Icon(
                         widget.icon,
-                        size: 42 + (v * 3),
+                        size: 40 + (v * 2),
                         color: widget.color,
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       Text(
                         widget.label,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: FontWeight.w800,
                           color: widget.color,
                           letterSpacing: -0.2,
@@ -2080,7 +2089,7 @@ class _ActionBtnState extends State<_ActionBtn> with SingleTickerProviderStateMi
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: widget.color.withOpacity(0.08),
+                            color: widget.color.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
@@ -2088,7 +2097,7 @@ class _ActionBtnState extends State<_ActionBtn> with SingleTickerProviderStateMi
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
-                              color: widget.color.withOpacity(0.85),
+                              color: widget.color.withValues(alpha: 0.85),
                             ),
                           ),
                         ),
@@ -2120,8 +2129,15 @@ class _TripRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           color: _white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: _lgrey),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+          boxShadow: [
+            BoxShadow(
+              color: _black.withValues(alpha: 0.02),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(children: [
           Container(
@@ -2136,25 +2152,26 @@ class _TripRow extends StatelessWidget {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(trip['vehicle_name'] ?? '—',
                   style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13.5,
                       color: _black)),
+              const SizedBox(height: 1),
               if (trip['start_loc'] != null || trip['end_loc'] != null)
                 Text(
                   '${trip['start_loc'] ?? '?'} → ${trip['end_loc'] ?? '?'}',
-                  style: TextStyle(fontSize: 10, color: _blue.withValues(alpha: 0.7), fontWeight: FontWeight.w700),
+                  style: const TextStyle(fontSize: 10.5, color: _blue, fontWeight: FontWeight.w700),
                 )
               else
                 Text(trip['registration_number'] ?? '',
-                    style: const TextStyle(fontSize: 11, color: _grey)),
+                    style: const TextStyle(fontSize: 11, color: _grey, fontWeight: FontWeight.w500)),
             ]),
           ),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
             Text('${trip['distance'] ?? '—'} km',
                 style: const TextStyle(
-                    fontWeight: FontWeight.w700, color: _black, fontSize: 14)),
+                    fontWeight: FontWeight.w800, color: _black, fontSize: 14)),
             Text(_fmt(trip['end_time']?.toString()),
-                style: const TextStyle(fontSize: 11, color: _grey)),
+                style: const TextStyle(fontSize: 11, color: _grey, fontWeight: FontWeight.w500)),
           ]),
         ]),
       );
@@ -2175,8 +2192,15 @@ class _FuelRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           color: _white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: _lgrey),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+          boxShadow: [
+            BoxShadow(
+              color: _black.withValues(alpha: 0.02),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(children: [
           Container(
@@ -2192,22 +2216,23 @@ class _FuelRow extends StatelessWidget {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(fuel['vehicle_name'] ?? '—',
                   style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13.5,
                       color: _black)),
+              const SizedBox(height: 1),
               Text(
                   '${fuel['liters_filled']} L  ·  ${fuel['odometer_reading']} km',
-                  style: const TextStyle(fontSize: 11, color: _grey)),
+                  style: const TextStyle(fontSize: 11, color: _grey, fontWeight: FontWeight.w500)),
             ]),
           ),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
             Text('₹${fuel['amount_paid']}',
                 style: const TextStyle(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     color: _amber,
                     fontSize: 14)),
             Text(_fmt(fuel['created_at']?.toString()),
-                style: const TextStyle(fontSize: 11, color: _grey)),
+                style: const TextStyle(fontSize: 11, color: _grey, fontWeight: FontWeight.w500)),
           ]),
         ]),
       );

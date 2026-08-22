@@ -122,20 +122,26 @@ class _CaptureProgressPageState extends State<CaptureProgressPage>
         await Future.delayed(const Duration(milliseconds: 800));
         Get.back(result: {'success': true, 'isOut': _isCheckOut});
       }
-    } catch (e) {
-      if (mounted) {
-        String errorMsg = e.toString();
-        if (errorMsg.contains('DATE_MISMATCH')) {
-          _showDateMismatchDialog();
-          return;
+      } catch (e) {
+        if (mounted) {
+          String errorMsg = e.toString();
+          if (errorMsg.contains('DATE_MISMATCH')) {
+            _showDateMismatchDialog();
+            return;
+          }
+          if (errorMsg.contains('USER_INACTIVE') ||
+              errorMsg.toLowerCase().contains('not allowed') ||
+              errorMsg.toLowerCase().contains('administrator')) {
+            _showUserInactiveDialog();
+            return;
+          }
+          setState(() {
+            _errorMessage = errorMsg;
+            _status = 'Task Failed';
+          });
         }
-        setState(() {
-          _errorMessage = errorMsg;
-          _status = 'Task Failed';
-        });
       }
     }
-  }
 
   Future<bool> _performUpload(String imagePath) async {
     final storage = ApiService.storage;
@@ -420,7 +426,67 @@ class _CaptureProgressPageState extends State<CaptureProgressPage>
                 Navigator.of(context).pop();
                 Get.back();
               },
-              child: Text('OK'),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showUserInactiveDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.block_rounded, size: 32, color: Colors.red),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Access Restricted',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'You are not allowed to record attendance.',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Your account has been deactivated or restricted by administrator. Please contact your manager or HR.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Get.back();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('OK', style: TextStyle(color: Colors.white)),
             ),
           ],
         );

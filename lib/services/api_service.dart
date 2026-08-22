@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../models/payroll_month_data.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 class ApiService {
@@ -27,13 +28,21 @@ class ApiService {
         '$baseUrl/app/version-check',
         queryParameters: {'version': version},
       );
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && response.data is Map<String, dynamic>) {
         return response.data;
       }
-      return {'allowed': true}; // Fallback to allow if server has issues
+      return {
+        'allowed': false,
+        'unreachable': true,
+        'message': 'Unable to reach server. Please check your network or server configuration.',
+      };
     } catch (e) {
       print('❌ Version check failed: $e');
-      return {'allowed': true}; // Fallback to allow if server is unreachable
+      return {
+        'allowed': false,
+        'unreachable': true,
+        'message': 'Unable to reach server. Please check your network or server configuration.',
+      };
     }
   }
 
@@ -1512,6 +1521,114 @@ class ApiService {
     } catch (e) {
       if (e is Exception && !e.toString().contains('Network error:')) throw e;
       throw Exception('Network error: $e');
+    }
+  }
+
+  // ── Fetch payroll data for the last 3 months (current + 2 prior) ────────────
+  static Future<List<PayrollMonthData>> getPayrollThreeMonths(int userId) async {
+    final now = DateTime.now();
+    final months = List.generate(3, (i) {
+      final dt = DateTime(now.year, now.month - i, 1);
+      final ym = '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
+      // Display label e.g. "Aug 2026"
+      const monthNames = [
+        '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
+      final label = '${monthNames[dt.month]} ${dt.year}';
+      return (yearMonth: ym, label: label);
+    });
+
+    final results = await Future.wait(months.map((m) async {
+      try {
+        final summary = await getMonthlySummary(userId, yearMonth: m.yearMonth);
+        final daily = await getDailyBreakdown(userId, yearMonth: m.yearMonth);
+        final days = (daily['days'] as List? ?? [])
+            .map((d) => d as Map<String, dynamic>)
+            .toList();
+        final hasSummaryData = summary['attendance'] != null;
+        return PayrollMonthData(
+          yearMonth: m.yearMonth,
+          displayLabel: m.label,
+          summary: summary,
+          days: days,
+          isEmpty: !hasSummaryData || days.isEmpty,
+        );
+      } catch (_) {
+        return PayrollMonthData(
+          yearMonth: m.yearMonth,
+          displayLabel: m.label,
+          summary: {},
+          days: [],
+          isEmpty: true,
+        );
+      }
+    }));
+
+    return results;
+  }
+
+  // ── Payslip methods (admin-uploaded Excel payslips) ──────────────────────
+
+  /// Returns list of uploaded months for a given username.
+  /// GET /payslip/list?username=MEPL001
+  static Future<List<Map<String, dynamic>>> getPayslipList(String username) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/payslip/list').replace(queryParameters: {'username': username}),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final months = data['months'];
+        if (months is List) {
+          return months.map((e) => Map<String, dynamic>.from(e)).toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      print('getPayslipList error: $e');
+      return [];
+    }
+  }
+
+  /// Returns the full payslip record for a given username + month.
+  /// GET /payslip/my?username=MEPL001&month_key=2026-05
+  static Future<Map<String, dynamic>?> getPayslip(String username, String monthKey) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/payslip/my')
+            .replace(queryParameters: {'username': username, 'month_key': monthKey}),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return Map<String, dynamic>.from(data['payslip'] ?? {});
+      }
+      return null;
+    } catch (e) {
+      print('getPayslip error: $e');
+      return null;
+    }
+  }
+
+  /// Returns the user record directly from users table
+  /// GET /users/by-username?username=MEPL001
+  static Future<Map<String, dynamic>?> getUserByUsername(String username) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/users/by-username')
+            .replace(queryParameters: {'username': username}),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['user'] != null ? Map<String, dynamic>.from(data['user']) : null;
+      }
+      return null;
+    } catch (e) {
+      print('getUserByUsername error: $e');
+      return null;
     }
   }
 }

@@ -92,7 +92,12 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
     setState(() => loading = true);
     try {
       final users = await ApiService.getUsersOnly(date: todayStr);
-      final filtered = users.where((u) => u['id'] != widget.managerId).toList();
+      final filtered = users.where((u) {
+        final isNotManager = u['id'] != widget.managerId;
+        final isAdmin = (u['role'] ?? '').toString().toLowerCase() == 'admin';
+        final isActive = u['is_active'] == 1 || u['is_active'] == true || u['is_active'] == '1' || u['is_active'] == null;
+        return isNotManager && !isAdmin && isActive;
+      }).toList();
       if (mounted)
         setState(() {
           allUsers = filtered;

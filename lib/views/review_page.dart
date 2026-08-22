@@ -1400,14 +1400,20 @@ class _ReviewPageState extends State<ReviewPage>
                                     ),
                                     const SizedBox(width: 8),
                                     Text(
-                                      isLeave ? 'LEAVE' : 'PERMISSION',
+                                      isLeave
+                                          ? 'LEAVE'
+                                          : (req['permission_type'] == 'late_checkin'
+                                              ? 'LATE CHECK-IN'
+                                              : (req['permission_type'] == 'early_checkout'
+                                                  ? 'EARLY CHECK-OUT'
+                                                  : 'PERMISSION')),
                                       style: TextStyle(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w900,
                                         color: isLeave
                                             ? Colors.orange.shade700
                                             : Colors.purple.shade700,
-                                        letterSpacing: 1,
+                                        letterSpacing: 0.8,
                                       ),
                                     ),
                                   ],
@@ -1453,11 +1459,11 @@ class _ReviewPageState extends State<ReviewPage>
                             Text(
                               isLeave
                                   ? '${DateFormat('dd MMM').format(_parseDateOnly(req['from_date']) ?? DateTime(0))} - ${DateFormat('dd MMM').format(_parseDateOnly(req['to_date']) ?? DateTime(0))} (${req['total_days']} days)${req['session'] != null && req['session'] != 'full' ? ' • ${req['session'] == 'first_half' ? "Morning" : "Afternoon"}' : ''}'
-                                  : '${DateFormat('dd MMM').format(_parseDateOnly(req['date']) ?? DateTime(0))} • ${req['permission_minutes']} mins',
+                                  : '${req['permission_type'] == 'late_checkin' ? 'Late Check-in' : (req['permission_type'] == 'early_checkout' ? 'Early Check-out' : 'Permission')} • ${DateFormat('dd MMM').format(_parseDateOnly(req['date']) ?? DateTime(0))} • ${req['permission_minutes'] ?? 0} mins',
                               style: const TextStyle(
                                 fontSize: 13,
                                 color: _mediumGray,
-                                fontWeight: FontWeight.w500,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             if (req['reason'] != null &&

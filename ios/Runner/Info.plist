@@ -45,5 +45,63 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- Camera Permission -->
+	<key>NSCameraUsageDescription</key>
+	<string>MEPL-Track requires access to your camera to take attendance selfies and capture vehicle odometer photos.</string>
+
+	<!-- Photo Library Permissions -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MEPL-Track requires access to your photo library to select photos for attendance, vehicle documentation, and profile verification.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>MEPL-Track needs permission to save generated payroll reports and receipts to your photo library or storage.</string>
+
+	<!-- Location Permissions -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>MEPL-Track needs your location to verify your presence at designated work sites during check-in, check-out, and shift tracking.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>MEPL-Track requires location access to record accurate site attendance and shift locations.</string>
+
+	<!-- Biometric / Face ID Permission -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>MEPL-Track uses Face ID / Touch ID for quick and secure biometric login to your account.</string>
+
+	<!-- File Sharing & Document Interaction (PDF / Payroll / Excel) -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+
+	<!-- Network Security Configuration (HTTP & HTTPS) -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+
+	<!-- URL Launcher Schemes for Maps, Web, Calls, SMS, Emails -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>https</string>
+		<string>http</string>
+		<string>tel</string>
+		<string>mailto</string>
+		<string>sms</string>
+		<string>comgooglemaps</string>
+		<string>baidumap</string>
+		<string>iosamap</string>
+		<string>waze</string>
+		<string>yandexmaps</string>
+		<string>yandexnavi</string>
+		<string>citymapper</string>
+		<string>mapswithme</string>
+		<string>osmandmaps</string>
+		<string>dgis</string>
+		<string>qqmap</string>
+		<string>here-location</string>
+		<string>tomtomgo</string>
+		<string>copilot</string>
+		<string>sygic</string>
+	</array>
 </dict>
 </plist>

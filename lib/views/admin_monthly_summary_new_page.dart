@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import 'monthly_summary_page.dart';
+import 'payslip_page.dart';
 import '../widgets/electric_refresh_indicator.dart';
 
 class AdminMonthlySummaryNewPage extends StatefulWidget {
@@ -485,6 +486,7 @@ class _AdminMonthlySummaryNewPageState
                         ],
                       ),
                     ),
+                    // Month label chip
                     if (monthlyRecord != null)
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -504,6 +506,33 @@ class _AdminMonthlySummaryNewPageState
                           ),
                         ),
                       ),
+                    const SizedBox(width: 8),
+                    // ── Download icon button ──────────────────────────────────
+                    GestureDetector(
+                      onTap: () {
+                        Get.to(
+                          () => PayslipPage(
+                            displayName: (user['full_name'] ?? user['username'] ?? '').toString(),
+                            username: (user['username'] ?? '').toString(),
+                          ),
+                        );
+                      },
+                      child: Tooltip(
+                        message: 'View Payslips',
+                        child: Container(
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: _primaryBlack,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.download_rounded,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
 

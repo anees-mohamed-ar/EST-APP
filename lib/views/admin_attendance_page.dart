@@ -910,7 +910,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
     final duration = u['duration'] as String?;
     final hasOut = checkOut != null && checkOut['time'] != null;
     final username = u['username'] as String? ?? 'Unknown';
-    final initial = username.isNotEmpty ? username[0].toUpperCase() : '?';
+    final empName = (u['full_name'] ?? u['employee_name'] ?? u['name'] ?? username).toString().trim();
+    final initial = empName.isNotEmpty ? empName[0].toUpperCase() : '?';
     final otText = _calcOT(duration, u['is_ot_eligible'] ?? true);
     final pfp = u['pfp'] as String?;
     final isOvernight = u['is_overnight'] == true;

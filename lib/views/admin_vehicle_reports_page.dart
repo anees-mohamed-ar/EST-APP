@@ -6,16 +6,19 @@ import 'dart:ui';
 import 'dart:async';
 import 'package:url_launcher/url_launcher.dart';
 
-// Colors - matching the premium theme
+// Colors - aligned with EST Minimal & Obsidian Design System
 const _bg = Color(0xFFF8FAFC);
+const _card = Color(0xFFFFFFFF);
 const _white = Colors.white;
-const _black = Color(0xFF0F172A);
-const _grey = Color(0xFF64748B);
+const _black = Color(0xFF0F172A); // Obsidian / Midnight Slate
+const _grey = Color(0xFF64748B); // Cool Slate Grey
+const _lightGrey = Color(0xFF94A3B8);
+const _border = Color(0xFFE2E8F0);
 const _xlGrey = Color(0xFFF1F5F9);
-const _blue = Color(0xFF3B82F6);
-const _amber = Color(0xFFF59E0B);
-const _green = Color(0xFF10B981);
-const _indigo = Color(0xFF6366F1);
+const _blue = Color(0xFF2563EB); // Electric Indigo Blue
+const _amber = Color(0xFFD97706); // Warm Amber
+const _green = Color(0xFF059669); // Emerald Green
+const _indigo = Color(0xFF4F46E5);
 
 class AdminVehicleReportsPage extends StatefulWidget {
   const AdminVehicleReportsPage({Key? key}) : super(key: key);
@@ -35,6 +38,9 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl.addListener(() {
+      if (mounted) setState(() {});
+    });
     _fetch();
   }
 
@@ -55,7 +61,7 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
       Get.snackbar(
         'Error',
         'Failed to load report: $e',
-        backgroundColor: Colors.red,
+        backgroundColor: const Color(0xFFDC2626),
         colorText: Colors.white,
       );
     } finally {
@@ -72,7 +78,12 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
           _buildHeader(),
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: _blue))
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: _black,
+                      strokeWidth: 2.5,
+                    ),
+                  )
                 : TabBarView(
                     controller: _tabCtrl,
                     children: [
@@ -89,10 +100,13 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
 
   Widget _buildHeader() {
     return Container(
-      color: _white,
+      decoration: BoxDecoration(
+        color: _white,
+        border: Border(bottom: BorderSide(color: _border, width: 1)),
+      ),
       padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 12,
-        bottom: 0,
+        top: MediaQuery.of(context).padding.top + 10,
+        bottom: 12,
         left: 20,
         right: 20,
       ),
@@ -104,68 +118,88 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
               GestureDetector(
                 onTap: () => Get.back(),
                 child: Container(
-                  padding: const EdgeInsets.all(9),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: _xlGrey,
-                    borderRadius: BorderRadius.circular(11),
+                    color: _black.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
                     Icons.arrow_back_ios_new_rounded,
                     color: _black,
-                    size: 16,
+                    size: 15,
                   ),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               const Text(
                 'Fleet Reports',
                 style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
                   color: _black,
-                  letterSpacing: -0.5,
+                  letterSpacing: -0.3,
                 ),
               ),
               const Spacer(),
               GestureDetector(
                 onTap: _fetch,
                 child: Container(
-                  padding: const EdgeInsets.all(9),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: _xlGrey,
-                    borderRadius: BorderRadius.circular(11),
+                    color: _black.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
                     Icons.refresh_rounded,
                     color: _black,
-                    size: 18,
+                    size: 17,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          TabBar(
-            controller: _tabCtrl,
-            isScrollable: false,
-            indicatorColor: _blue,
-            indicatorWeight: 3,
-            dividerColor: Colors.transparent,
-            labelColor: _blue,
-            unselectedLabelColor: _grey,
-            labelStyle: const TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 14,
+          const SizedBox(height: 14),
+          // Clean Pill Tabs matching MEPL App Theme
+          Container(
+            height: 40,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: _xlGrey,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _border),
             ),
-            unselectedLabelStyle: const TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
+            child: TabBar(
+              controller: _tabCtrl,
+              isScrollable: false,
+              indicator: BoxDecoration(
+                color: _white,
+                borderRadius: BorderRadius.circular(9),
+                boxShadow: [
+                  BoxShadow(
+                    color: _black.withValues(alpha: 0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              dividerColor: Colors.transparent,
+              labelColor: _black,
+              unselectedLabelColor: _grey,
+              labelStyle: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 12.5,
+              ),
+              tabs: const [
+                Tab(text: 'Summary'),
+                Tab(text: 'Logbook'),
+                Tab(text: 'Fuel Logs'),
+              ],
             ),
-            tabs: const [
-              Tab(text: 'Summary'),
-              Tab(text: 'Logbook'),
-              Tab(text: 'Fuel'),
-            ],
           ),
         ],
       ),
@@ -227,9 +261,19 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
             const SizedBox(height: 12),
             ...active.take(3).map((a) => _activeTripTile(a)),
             if (active.length > 3)
-              TextButton(
-                onPressed: () => _tabCtrl.animateTo(1),
-                child: const Text('View all active trips'),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => _tabCtrl.animateTo(1),
+                  child: const Text(
+                    'View all active trips →',
+                    style: TextStyle(
+                      color: _black,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
               ),
           ],
 
@@ -237,18 +281,38 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
           const _SecHead('Employee Wise Usage'),
           const SizedBox(height: 12),
           ...emps.take(5).map((e) => _empStatTile(e)),
-          TextButton(
-            onPressed: () => _showAllStats('Employees', emps, isEmp: true),
-            child: const Text('View All Employees'),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => _showAllStats('Employees', emps, isEmp: true),
+              child: const Text(
+                'View All Employees →',
+                style: TextStyle(
+                  color: _black,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+            ),
           ),
 
           const SizedBox(height: 24),
           const _SecHead('Vehicle Wise Usage'),
           const SizedBox(height: 12),
           ...vehs.take(5).map((v) => _vehStatTile(v)),
-          TextButton(
-            onPressed: () => _showAllStats('Vehicles', vehs, isEmp: false),
-            child: const Text('View All Vehicles'),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => _showAllStats('Vehicles', vehs, isEmp: false),
+              child: const Text(
+                'View All Vehicles →',
+                style: TextStyle(
+                  color: _black,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+            ),
           ),
 
           const SizedBox(height: 100),
@@ -262,12 +326,13 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: _white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: _black.withOpacity(0.03),
+            color: _black.withValues(alpha: 0.02),
             blurRadius: 10,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -277,24 +342,37 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
         children: [
           Row(
             children: [
-              Icon(icon, color: color, size: 18),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: 15),
+              ),
               const SizedBox(width: 8),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: _grey,
+              Expanded(
+                child: Text(
+                  label.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w700,
+                    color: _grey,
+                    letterSpacing: 0.3,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
           Text(
             val,
-            style: TextStyle(
-              fontSize: 18,
+            style: const TextStyle(
+              fontSize: 19,
               fontWeight: FontWeight.w900,
               color: _black,
+              letterSpacing: -0.5,
             ),
           ),
         ],
@@ -303,26 +381,39 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
   }
 
   Widget _activeTripTile(Map<String, dynamic> a) {
+    final empName = a['employee_name'] ?? 'Driver';
+    final initial = empName.toString().trim().isNotEmpty ? empName.toString().trim()[0].toUpperCase() : '?';
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F172A), // Dark stylish card for active
-        borderRadius: BorderRadius.circular(20),
+        color: _black, // Midnight Slate obsidian active card
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: _black.withValues(alpha: 0.12),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Row(
         children: [
           CircleAvatar(
             radius: 20,
-            backgroundColor: _white.withOpacity(0.1),
+            backgroundColor: _white.withValues(alpha: 0.15),
             backgroundImage: a['pfp'] != null
                 ? NetworkImage('${ApiService.baseUrl}${a['pfp']}')
                 : null,
             child: a['pfp'] == null
-                ? const Icon(
-                    Icons.person_outline_rounded,
-                    color: Colors.white,
-                    size: 20,
+                ? Text(
+                    initial,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
                   )
                 : null,
           ),
@@ -332,36 +423,51 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  a['employee_name'] ?? 'Driver',
+                  empName,
                   style: const TextStyle(
                     color: _white,
                     fontSize: 14,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
                   '${a['vehicle_name']} • ${a['registration_number']}',
                   style: TextStyle(
-                    color: _white.withOpacity(0.6),
-                    fontSize: 10,
+                    color: _white.withValues(alpha: 0.65),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: _green.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(8),
+              color: _green.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _green.withValues(alpha: 0.4)),
             ),
-            child: const Text(
-              'LIVE',
-              style: TextStyle(
-                color: _green,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 5,
+                  height: 5,
+                  decoration: const BoxDecoration(color: _green, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 5),
+                const Text(
+                  'LIVE',
+                  style: TextStyle(
+                    color: _green,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -370,18 +476,21 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
   }
 
   Widget _empStatTile(Map<String, dynamic> e) {
+    final empName = e['employee_name'] ?? 'Unknown';
+    final initial = empName.toString().trim().isNotEmpty ? empName.toString().trim()[0].toUpperCase() : '?';
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: _white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _xlGrey),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: _black.withOpacity(0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: _black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -390,13 +499,20 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
           Row(
             children: [
               CircleAvatar(
-                radius: 20,
+                radius: 19,
                 backgroundColor: _xlGrey,
                 backgroundImage: e['pfp'] != null
                     ? NetworkImage('${ApiService.baseUrl}${e['pfp']}')
                     : null,
                 child: e['pfp'] == null
-                    ? const Icon(Icons.person, color: _grey, size: 20)
+                    ? Text(
+                        initial,
+                        style: const TextStyle(
+                          color: _black,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      )
                     : null,
               ),
               const SizedBox(width: 12),
@@ -405,30 +521,20 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      e['employee_name'] ?? 'Unknown',
+                      empName,
                       style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
                         color: _black,
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _blue.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'Emp id: ${e['username'] ?? e['employee_name'] ?? 'N/A'}',
-                        style: const TextStyle(
-                          color: _blue,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                        ),
+                    Text(
+                      'ID: ${e['username'] ?? e['employee_name'] ?? 'N/A'}',
+                      style: const TextStyle(
+                        color: _grey,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
@@ -442,15 +548,15 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
                     style: const TextStyle(
                       fontWeight: FontWeight.w900,
                       color: _amber,
-                      fontSize: 16,
+                      fontSize: 15,
                     ),
                   ),
                   const Text(
-                    'Total Spend',
+                    'Total Fuel',
                     style: TextStyle(
                       fontSize: 10,
                       color: _grey,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
@@ -458,7 +564,7 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
             ],
           ),
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 14),
+            padding: EdgeInsets.symmetric(vertical: 12),
             child: Divider(height: 1, color: _xlGrey),
           ),
           Row(
@@ -504,13 +610,13 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: _white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _xlGrey),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: _black.withOpacity(0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: _black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -521,13 +627,13 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: _xlGrey,
-                  borderRadius: BorderRadius.circular(12),
+                  color: _blue.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
                   Icons.directions_car_rounded,
                   color: _blue,
-                  size: 24,
+                  size: 20,
                 ),
               ),
               const SizedBox(width: 12),
@@ -538,8 +644,8 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
                     Text(
                       v['name'] ?? 'Vehicle',
                       style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
                         color: _black,
                       ),
                     ),
@@ -547,8 +653,8 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
                       v['registration_number'] ?? '',
                       style: const TextStyle(
                         color: _grey,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
@@ -562,7 +668,7 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
                     style: const TextStyle(
                       fontWeight: FontWeight.w900,
                       color: _indigo,
-                      fontSize: 16,
+                      fontSize: 15,
                     ),
                   ),
                   const Text(
@@ -570,7 +676,7 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
                     style: TextStyle(
                       fontSize: 10,
                       color: _grey,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
@@ -578,7 +684,7 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
             ],
           ),
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 14),
+            padding: EdgeInsets.symmetric(vertical: 12),
             child: Divider(height: 1, color: _xlGrey),
           ),
           Row(
@@ -609,13 +715,13 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
       children: [
         Row(
           children: [
-            Icon(icon, size: 12, color: color),
+            Icon(icon, size: 13, color: color),
             const SizedBox(width: 4),
             Text(
               val,
               style: const TextStyle(
                 fontWeight: FontWeight.w800,
-                fontSize: 12,
+                fontSize: 12.5,
                 color: _black,
               ),
             ),
@@ -627,7 +733,7 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
           style: const TextStyle(
             fontSize: 10,
             color: _grey,
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -648,80 +754,79 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
                 .toLowerCase();
             final sub =
                 (isEmp
-                        ? (item['employee_id'] ?? '')
-                        : (item['registration_number'] ?? ''))
-                    .toString()
-                    .toLowerCase();
-            final username = (isEmp ? (item['username'] ?? '') : '')
+                    ? (item['username'] ?? item['employee_name'])
+                    : (item['registration_number'] ?? ''))
                 .toString()
                 .toLowerCase();
             return name.contains(query.toLowerCase()) ||
-                sub.contains(query.toLowerCase()) ||
-                username.contains(query.toLowerCase());
+                sub.contains(query.toLowerCase());
           }).toList();
 
           // Sorting
-          filtered.sort((a, b) {
-            if (sortBy == 'Distance')
-              return (b['total_distance'] ?? 0).compareTo(
-                a['total_distance'] ?? 0,
-              );
-            if (sortBy == 'Trips')
-              return (b['total_trips'] ?? 0).compareTo(a['total_trips'] ?? 0);
-            if (sortBy == 'Spend') {
-              final valA =
-                  double.tryParse(
-                    (isEmp ? (a['totalFuelSpend']) : (a['totalFuelSpend']))
-                            ?.toString() ??
-                        '0',
-                  ) ??
-                  0;
-              final valB =
-                  double.tryParse(
-                    (isEmp ? (b['totalFuelSpend']) : (b['totalFuelSpend']))
-                            ?.toString() ??
-                        '0',
-                  ) ??
-                  0;
-              return valB.compareTo(valA);
-            }
-            return 0;
-          });
+          if (sortBy == 'Distance') {
+            filtered.sort(
+              (a, b) => (double.tryParse(b['total_distance']?.toString() ?? '0') ?? 0)
+                  .compareTo(
+                    double.tryParse(a['total_distance']?.toString() ?? '0') ?? 0,
+                  ),
+            );
+          } else if (sortBy == 'Trips') {
+            filtered.sort(
+              (a, b) => (int.tryParse(b['total_trips']?.toString() ?? '0') ?? 0)
+                  .compareTo(
+                    int.tryParse(a['total_trips']?.toString() ?? '0') ?? 0,
+                  ),
+            );
+          } else if (sortBy == 'Spend') {
+            filtered.sort(
+              (a, b) => (double.tryParse(b['totalFuelSpend']?.toString() ?? '0') ?? 0)
+                  .compareTo(
+                    double.tryParse(a['totalFuelSpend']?.toString() ?? '0') ?? 0,
+                  ),
+            );
+          }
 
           return Container(
-            height: Get.height * 0.9,
+            height: MediaQuery.of(context).size.height * 0.85,
             decoration: const BoxDecoration(
               color: _bg,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
             child: Column(
               children: [
                 const SizedBox(height: 12),
                 Container(
-                  width: 40,
+                  width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: _grey.withOpacity(0.2),
+                    color: _grey.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                   child: Row(
                     children: [
                       Text(
                         title,
                         style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
                           color: _black,
-                          letterSpacing: -0.5,
+                          letterSpacing: -0.3,
                         ),
                       ),
                       const Spacer(),
-                      IconButton(
-                        onPressed: () => Get.back(),
-                        icon: const Icon(Icons.close_rounded, color: _grey),
+                      GestureDetector(
+                        onTap: () => Get.back(),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: _black.withValues(alpha: 0.05),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.close_rounded, color: _grey, size: 16),
+                        ),
                       ),
                     ],
                   ),
@@ -730,33 +835,38 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
                 // Search Bar
                 Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 16,
+                    horizontal: 20,
+                    vertical: 14,
                   ),
                   child: TextField(
                     onChanged: (v) => setModalState(() => query = v),
+                    style: const TextStyle(fontSize: 13.5, color: _black),
                     decoration: InputDecoration(
                       hintText:
                           'Search by ${isEmp ? "name or id" : "vehicle or number"}...',
-                      hintStyle: const TextStyle(color: _grey, fontSize: 14),
+                      hintStyle: TextStyle(color: _grey.withValues(alpha: 0.7), fontSize: 13),
                       prefixIcon: const Icon(
                         Icons.search_rounded,
-                        color: _blue,
-                        size: 20,
+                        color: _grey,
+                        size: 18,
                       ),
                       filled: true,
                       fillColor: _white,
                       contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 0,
+                        horizontal: 14,
+                        vertical: 10,
                       ),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: _border),
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: _border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: _black, width: 1.5),
                       ),
                     ),
                   ),
@@ -764,7 +874,7 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
 
                 // Sorting Tabs
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(
                     children: [
                       _sortBtn(
@@ -787,11 +897,11 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
 
                 Expanded(
                   child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     itemCount: filtered.length,
                     itemBuilder: (c, i) => isEmp
                         ? _empStatTile(filtered[i])
@@ -813,19 +923,19 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
             color: active ? _black : _white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: active ? _black : _xlGrey),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: active ? _black : _border),
           ),
           child: Text(
             label,
             textAlign: TextAlign.center,
             style: TextStyle(
               color: active ? _white : _grey,
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
@@ -851,11 +961,11 @@ class _SecHead extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       title.toUpperCase(),
-      style: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w900,
-        color: const Color(0xFF64748B).withOpacity(0.8),
-        letterSpacing: 1,
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+        color: _grey,
+        letterSpacing: 0.8,
       ),
     );
   }
@@ -965,7 +1075,12 @@ class _AdminTripListState extends State<_AdminTripList> {
         ),
         Expanded(
           child: _loading && _trips.isEmpty
-              ? const Center(child: CircularProgressIndicator(color: _blue))
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: _black,
+                    strokeWidth: 2.5,
+                  ),
+                )
               : NotificationListener<ScrollNotification>(
                   onNotification: (sn) {
                     if (sn is ScrollEndNotification &&
@@ -981,7 +1096,10 @@ class _AdminTripListState extends State<_AdminTripList> {
                         return const Center(
                           child: Padding(
                             padding: EdgeInsets.all(20),
-                            child: CircularProgressIndicator(),
+                            child: CircularProgressIndicator(
+                              color: _black,
+                              strokeWidth: 2.5,
+                            ),
                           ),
                         );
                       final t = _trips[i];
@@ -1004,13 +1122,23 @@ class _AdminTripListState extends State<_AdminTripList> {
     final sPhoto =
         t['start_photo'] ?? t['start_odo_photo'] ?? t['start_odo_image'];
     final ePhoto = t['end_photo'] ?? t['end_odo_photo'] ?? t['end_odo_image'];
+    final empName = t['employee_name'] ?? 'Driver';
+    final initial = empName.toString().trim().isNotEmpty ? empName.toString().trim()[0].toUpperCase() : '?';
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        color: _white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
+        boxShadow: [
+          BoxShadow(
+            color: _black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1019,19 +1147,28 @@ class _AdminTripListState extends State<_AdminTripList> {
             children: [
               CircleAvatar(
                 radius: 14,
+                backgroundColor: _xlGrey,
                 backgroundImage: t['pfp'] != null
                     ? NetworkImage('${ApiService.baseUrl}${t['pfp']}')
                     : null,
                 child: t['pfp'] == null
-                    ? const Icon(Icons.person, size: 14)
+                    ? Text(
+                        initial,
+                        style: const TextStyle(
+                          color: _black,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                        ),
+                      )
                     : null,
               ),
               const SizedBox(width: 10),
               Text(
-                t['employee_name'] ?? '',
+                empName,
                 style: const TextStyle(
                   fontWeight: FontWeight.w800,
-                  fontSize: 13,
+                  fontSize: 13.5,
+                  color: _black,
                 ),
               ),
               const Spacer(),
@@ -1039,7 +1176,7 @@ class _AdminTripListState extends State<_AdminTripList> {
                 dateStr,
                 style: const TextStyle(
                   fontSize: 11,
-                  color: Color(0xFF64748B),
+                  color: _grey,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -1047,7 +1184,7 @@ class _AdminTripListState extends State<_AdminTripList> {
           ),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
-            child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+            child: Divider(height: 1, color: _xlGrey),
           ),
           Row(
             children: [
@@ -1058,24 +1195,27 @@ class _AdminTripListState extends State<_AdminTripList> {
                     const Text(
                       'VEHICLE',
                       style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF94A3B8),
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        color: _grey,
+                        letterSpacing: 0.5,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
                       t['vehicle_name'] ?? 'Unknown',
                       style: const TextStyle(
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         fontSize: 14,
+                        color: _black,
                       ),
                     ),
                     Text(
                       t['registration_number'] ?? '',
                       style: const TextStyle(
                         fontSize: 11,
-                        color: Color(0xFF64748B),
+                        color: _grey,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
@@ -1083,19 +1223,20 @@ class _AdminTripListState extends State<_AdminTripList> {
               ),
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
+                  horizontal: 14,
+                  vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF3B82F6).withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(14),
+                  color: _blue.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _blue.withValues(alpha: 0.15)),
                 ),
                 child: Column(
                   children: [
                     Text(
                       '${t['distance']} km',
                       style: const TextStyle(
-                        color: Color(0xFF3B82F6),
+                        color: _blue,
                         fontWeight: FontWeight.w900,
                         fontSize: 15,
                       ),
@@ -1103,9 +1244,10 @@ class _AdminTripListState extends State<_AdminTripList> {
                     const Text(
                       'DISTANCE',
                       style: TextStyle(
-                        color: Color(0xFF3B82F6),
-                        fontSize: 8,
+                        color: _blue,
+                        fontSize: 8.5,
                         fontWeight: FontWeight.w800,
+                        letterSpacing: 0.3,
                       ),
                     ),
                   ],
@@ -1119,9 +1261,9 @@ class _AdminTripListState extends State<_AdminTripList> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
+                color: _bg,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFF1F5F9)),
+                border: Border.all(color: _border),
               ),
               child: Row(
                 children: [
@@ -1141,7 +1283,7 @@ class _AdminTripListState extends State<_AdminTripList> {
                           child: Icon(
                             Icons.arrow_forward_rounded,
                             size: 12,
-                            color: Color(0xFF94A3B8),
+                            color: _lightGrey,
                           ),
                         ),
                         _locLink(t['end_loc'], t['end_lat'], t['end_lng']),
@@ -1159,8 +1301,8 @@ class _AdminTripListState extends State<_AdminTripList> {
               _odoPoint('START', t['start_odometer']?.toString() ?? '0', start),
               const Icon(
                 Icons.arrow_forward_rounded,
-                size: 16,
-                color: Color(0xFF94A3B8),
+                size: 15,
+                color: _lightGrey,
               ),
               _odoPoint('END', t['end_odometer']?.toString() ?? '0', end),
             ],
@@ -1170,14 +1312,14 @@ class _AdminTripListState extends State<_AdminTripList> {
           if (sPhoto != null || ePhoto != null) ...[
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
-              child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+              child: Divider(height: 1, color: _xlGrey),
             ),
             const Text(
               'ODOMETER VERIFICATION',
               style: TextStyle(
-                fontSize: 8,
+                fontSize: 8.5,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF94A3B8),
+                color: _grey,
                 letterSpacing: 0.5,
               ),
             ),
@@ -1219,24 +1361,25 @@ class _AdminTripListState extends State<_AdminTripList> {
         Text(
           label,
           style: const TextStyle(
-            fontSize: 8,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF94A3B8),
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: _grey,
           ),
         ),
+        const SizedBox(height: 1),
         Text(
           '$val km',
           style: const TextStyle(
             fontWeight: FontWeight.w900,
-            fontSize: 13,
-            color: Color(0xFF1E293B),
+            fontSize: 13.5,
+            color: _black,
           ),
         ),
         Text(
           tStr,
           style: const TextStyle(
-            fontSize: 10,
-            color: Color(0xFF64748B),
+            fontSize: 10.5,
+            color: _grey,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -1253,9 +1396,9 @@ class _AdminTripListState extends State<_AdminTripList> {
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
-          color: hasCoords ? _blue : const Color(0xFF475569),
+          color: hasCoords ? _blue : _black,
           decoration: hasCoords ? TextDecoration.underline : null,
-          decorationColor: _blue.withOpacity(0.4),
+          decorationColor: _blue.withValues(alpha: 0.4),
         ),
       ),
     );
@@ -1339,7 +1482,7 @@ class _AdminFuelListState extends State<_AdminFuelList> {
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
           colorScheme: const ColorScheme.light(
-            primary: _amber,
+            primary: _black,
             onPrimary: Colors.white,
             onSurface: _black,
           ),
@@ -1373,7 +1516,12 @@ class _AdminFuelListState extends State<_AdminFuelList> {
         ),
         Expanded(
           child: _loading && _fuels.isEmpty
-              ? const Center(child: CircularProgressIndicator(color: _amber))
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: _black,
+                    strokeWidth: 2.5,
+                  ),
+                )
               : NotificationListener<ScrollNotification>(
                   onNotification: (sn) {
                     if (sn is ScrollEndNotification &&
@@ -1389,7 +1537,10 @@ class _AdminFuelListState extends State<_AdminFuelList> {
                         return const Center(
                           child: Padding(
                             padding: EdgeInsets.all(20),
-                            child: CircularProgressIndicator(),
+                            child: CircularProgressIndicator(
+                              color: _black,
+                              strokeWidth: 2.5,
+                            ),
                           ),
                         );
                       final f = _fuels[i];
@@ -1409,26 +1560,35 @@ class _AdminFuelListState extends State<_AdminFuelList> {
         : '--';
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        color: _white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
+        boxShadow: [
+          BoxShadow(
+            color: _black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         children: [
           Row(
             children: [
               Container(
-                width: 50,
-                height: 50,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF59E0B).withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(15),
+                  color: _amber.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.local_gas_station_rounded,
-                  color: Color(0xFFF59E0B),
+                  color: _amber,
+                  size: 22,
                 ),
               ),
               const SizedBox(width: 14),
@@ -1440,22 +1600,24 @@ class _AdminFuelListState extends State<_AdminFuelList> {
                       f['employee_name'] ?? '',
                       style: const TextStyle(
                         fontWeight: FontWeight.w800,
-                        fontSize: 13,
+                        fontSize: 13.5,
+                        color: _black,
                       ),
                     ),
+                    const SizedBox(height: 1),
                     Text(
                       f['vehicle_name'] ?? '',
                       style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14,
-                        color: Color(0xFF0F172A),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: _black,
                       ),
                     ),
                     Text(
                       dateStr,
                       style: const TextStyle(
-                        fontSize: 10,
-                        color: Color(0xFF64748B),
+                        fontSize: 10.5,
+                        color: _grey,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -1470,15 +1632,15 @@ class _AdminFuelListState extends State<_AdminFuelList> {
                     style: const TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 16,
-                      color: Color(0xFF0F172A),
+                      color: _black,
                     ),
                   ),
                   Text(
-                    '${f['liters_filled']} Liters',
+                    '${f['liters_filled']} L',
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF10B981),
+                      color: _green,
                     ),
                   ),
                 ],
@@ -1489,7 +1651,7 @@ class _AdminFuelListState extends State<_AdminFuelList> {
           if (f['bill_photo'] != null && f['bill_photo'] != '') ...[
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
-              child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+              child: Divider(height: 1, color: _xlGrey),
             ),
             _PhotoBtn(
               label: 'VIEW FUEL BILL',
@@ -1520,11 +1682,11 @@ class _PhotoBtn extends StatelessWidget {
     return GestureDetector(
       onTap: () => _showPhoto(context, path, label),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 9),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
+          color: color.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.2)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1534,7 +1696,7 @@ class _PhotoBtn extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 10.5,
                 fontWeight: FontWeight.w800,
                 color: color,
                 letterSpacing: 0.5,
@@ -1562,7 +1724,7 @@ class _PhotoBtn extends StatelessWidget {
               width: double.infinity,
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(20),
               ),
               clipBehavior: Clip.antiAlias,
               child: Column(
@@ -1573,8 +1735,8 @@ class _PhotoBtn extends StatelessWidget {
                     title: Text(
                       title,
                       style: const TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontSize: 16,
+                        color: _black,
+                        fontSize: 15,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -1584,7 +1746,7 @@ class _PhotoBtn extends StatelessWidget {
                       IconButton(
                         icon: const Icon(
                           Icons.close_rounded,
-                          color: Color(0xFF64748B),
+                          color: _grey,
                         ),
                         onPressed: () => Navigator.pop(context),
                       ),
@@ -1602,7 +1764,8 @@ class _PhotoBtn extends StatelessWidget {
                           height: 300,
                           alignment: Alignment.center,
                           child: const CircularProgressIndicator(
-                            color: Color(0xFF0F172A),
+                            color: _black,
+                            strokeWidth: 2.5,
                           ),
                         );
                       },
@@ -1614,14 +1777,14 @@ class _PhotoBtn extends StatelessWidget {
                           children: [
                             Icon(
                               Icons.broken_image_rounded,
-                              color: Color(0xFF64748B),
+                              color: _grey,
                               size: 32,
                             ),
                             SizedBox(height: 8),
                             Text(
                               'Photo unavailable',
                               style: TextStyle(
-                                color: Color(0xFF64748B),
+                                color: _grey,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -1656,17 +1819,18 @@ class _CompactSearch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 8),
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      height: 48,
+      height: 46,
       decoration: BoxDecoration(
         color: _white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: _black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: _black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -1676,41 +1840,41 @@ class _CompactSearch extends StatelessWidget {
             child: TextField(
               onChanged: onChanged,
               style: const TextStyle(
-                fontSize: 14,
+                fontSize: 13.5,
                 fontWeight: FontWeight.w600,
                 color: _black,
               ),
               decoration: InputDecoration(
                 hintText: hint,
-                hintStyle: const TextStyle(color: _grey, fontSize: 13),
+                hintStyle: TextStyle(color: _grey.withValues(alpha: 0.7), fontSize: 13),
                 prefixIcon: const Icon(
                   Icons.search_rounded,
-                  color: _blue,
+                  color: _grey,
                   size: 18,
                 ),
                 border: InputBorder.none,
                 isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                contentPadding: const EdgeInsets.symmetric(vertical: 13),
               ),
             ),
           ),
           if (onFilter != null) ...[
             const SizedBox(width: 4),
-            Container(width: 1.5, height: 20, color: _grey.withOpacity(0.15)),
+            Container(width: 1, height: 18, color: _border),
             const SizedBox(width: 4),
             TextButton.icon(
               onPressed: onFilter,
               icon: const Icon(
                 Icons.calendar_today_rounded,
                 size: 13,
-                color: _blue,
+                color: _black,
               ),
               label: Text(
                 dateRange ?? 'Filter',
                 style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  color: _blue,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: _black,
                 ),
               ),
               style: TextButton.styleFrom(
