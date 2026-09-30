@@ -19,6 +19,7 @@ import '../widgets/electric_refresh_indicator.dart';
 import 'package:confetti/confetti.dart';
 import 'package:lottie/lottie.dart';
 import 'payroll_download_page.dart';
+import '../constants/app_config.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -1371,6 +1372,35 @@ class _HomePageState extends State<HomePage>
                   },
                 ),
                 const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    children: [
+                      const Divider(color: _lightGray, height: 1),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Developed by iMatrix Technologies Pvt Ltd © ${DateTime.now().year}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: _mediumGray,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Version ${AppConfig.appVersion}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w400,
+                          color: _mediumGray.withOpacity(0.8),
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
               ],
             ),
           ),
@@ -3535,22 +3565,25 @@ class _HomePageState extends State<HomePage>
         Container(
           height: 110,
           decoration: const BoxDecoration(color: Colors.transparent),
-          child: PageView(
-            controller: _streakPageController,
-            onPageChanged: (idx) {
-              if (mounted) setState(() => _currentStreakPage = idx);
-            },
-            children: [
-              // Slide 1: Top Day
-              _buildTopDaySlide(topDayName, topDayDuration, formattedMonth),
-              // Slide 2: Monthly Attendance & Streak
-              _buildAttendanceSlide(
-                presentDays,
-                currentDay,
-                formattedMonth,
-                _displayedStreakCount,
-              ),
-            ],
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: PageView(
+              controller: _streakPageController,
+              onPageChanged: (idx) {
+                if (mounted) setState(() => _currentStreakPage = idx);
+              },
+              children: [
+                // Slide 1: Top Day
+                _buildTopDaySlide(topDayName, topDayDuration, formattedMonth),
+                // Slide 2: Monthly Attendance & Streak
+                _buildAttendanceSlide(
+                  presentDays,
+                  currentDay,
+                  formattedMonth,
+                  _displayedStreakCount,
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 12),
@@ -3805,7 +3838,7 @@ class _HomePageState extends State<HomePage>
       margin: const EdgeInsets.symmetric(horizontal: 2),
       decoration: BoxDecoration(
         color: _pureWhite,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(color: _lightGray, width: 1),
         boxShadow: [
           BoxShadow(

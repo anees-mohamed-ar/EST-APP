@@ -422,13 +422,31 @@ class _AdminVehicleReportsPageState extends State<AdminVehicleReportsPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  empName,
-                  style: const TextStyle(
-                    color: _white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        empName,
+                        style: const TextStyle(
+                          color: _white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (a['username'] != null && a['username'].toString().isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '(${a['username']})',
+                        style: TextStyle(
+                          color: _white.withValues(alpha: 0.6),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -1804,11 +1822,12 @@ class _PhotoBtn extends StatelessWidget {
   }
 }
 
-class _CompactSearch extends StatelessWidget {
+class _CompactSearch extends StatefulWidget {
   final ValueChanged<String> onChanged;
   final String hint;
   final VoidCallback? onFilter;
   final String? dateRange;
+
   const _CompactSearch({
     required this.onChanged,
     required this.hint,
@@ -1817,70 +1836,137 @@ class _CompactSearch extends StatelessWidget {
   });
 
   @override
+  State<_CompactSearch> createState() => _CompactSearchState();
+}
+
+class _CompactSearchState extends State<_CompactSearch> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(20, 14, 20, 8),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      height: 46,
+      height: 48,
+      margin: const EdgeInsets.fromLTRB(20, 12, 20, 10),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: _white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: _black.withValues(alpha: 0.02),
-            blurRadius: 8,
+            color: _black.withValues(alpha: 0.03),
+            blurRadius: 10,
             offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          const Padding(
+            padding: EdgeInsets.only(left: 14, right: 8),
+            child: Icon(
+              Icons.search_rounded,
+              color: _grey,
+              size: 19,
+            ),
+          ),
           Expanded(
             child: TextField(
-              onChanged: onChanged,
+              controller: _controller,
+              onChanged: (val) {
+                setState(() {});
+                widget.onChanged(val);
+              },
               style: const TextStyle(
                 fontSize: 13.5,
                 fontWeight: FontWeight.w600,
                 color: _black,
               ),
+              textAlignVertical: TextAlignVertical.center,
               decoration: InputDecoration(
-                hintText: hint,
-                hintStyle: TextStyle(color: _grey.withValues(alpha: 0.7), fontSize: 13),
-                prefixIcon: const Icon(
-                  Icons.search_rounded,
-                  color: _grey,
-                  size: 18,
+                hintText: widget.hint,
+                hintStyle: TextStyle(
+                  color: _grey.withValues(alpha: 0.65),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
                 ),
                 border: InputBorder.none,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 13),
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+                errorBorder: InputBorder.none,
+                focusedErrorBorder: InputBorder.none,
+                isCollapsed: true,
+                contentPadding: EdgeInsets.zero,
               ),
             ),
           ),
-          if (onFilter != null) ...[
-            const SizedBox(width: 4),
-            Container(width: 1, height: 18, color: _border),
-            const SizedBox(width: 4),
-            TextButton.icon(
-              onPressed: onFilter,
-              icon: const Icon(
-                Icons.calendar_today_rounded,
-                size: 13,
-                color: _black,
-              ),
-              label: Text(
-                dateRange ?? 'Filter',
-                style: const TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  color: _black,
+          if (_controller.text.isNotEmpty)
+            GestureDetector(
+              onTap: () {
+                _controller.clear();
+                setState(() {});
+                widget.onChanged('');
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: _grey.withValues(alpha: 0.18),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    color: _grey,
+                    size: 13,
+                  ),
                 ),
               ),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          if (widget.onFilter != null) ...[
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              width: 1,
+              height: 24,
+              color: _border,
+            ),
+            InkWell(
+              onTap: widget.onFilter,
+              borderRadius: const BorderRadius.horizontal(right: Radius.circular(14)),
+              child: SizedBox(
+                height: 48,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 14, 0),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.calendar_today_rounded,
+                        size: 13,
+                        color: _black,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        widget.dateRange ?? 'Filter',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: _black,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],

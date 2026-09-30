@@ -285,7 +285,8 @@ class LeaveCalendarController extends GetxController {
   /// so the calendar can block selecting them.
   Future<void> fetchApprovedLeaveDays(int userId) async {
     try {
-      final reqs = await ApiService.getMyLeaveRequests(userId);
+      final res = await ApiService.getMyLeaveRequests(userId, limit: 500);
+      final List<dynamic> reqs = res['data'] ?? [];
       final Set<String> blocked = <String>{};
 
       for (final r in reqs) {

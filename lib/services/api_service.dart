@@ -257,14 +257,37 @@ class ApiService {
     }
   }
 
-  // Get permissions for a user
-  static Future<List<dynamic>> getPermissions(int userId) async {
+  // Get permissions for a user (with pagination & month filter)
+  static Future<Map<String, dynamic>> getPermissions(
+    int userId, {
+    String? month,
+    int? page,
+    int? limit,
+  }) async {
     try {
+      final queryParams = <String, String>{};
+      if (month != null && month.isNotEmpty) queryParams['month'] = month;
+      if (page != null) queryParams['page'] = page.toString();
+      if (limit != null) queryParams['limit'] = limit.toString();
+
+      final uri = Uri.parse('$baseUrl/permissions/$userId').replace(
+        queryParameters: queryParams.isNotEmpty ? queryParams : null,
+      );
       final response = await http.get(
-        Uri.parse('$baseUrl/permissions/$userId'),
+        uri,
         headers: {'Content-Type': 'application/json'},
       );
-      if (response.statusCode == 200) return json.decode(response.body);
+      if (response.statusCode == 200) {
+        final decoded = json.decode(response.body);
+        if (decoded is List) {
+          return {'data': decoded, 'total': decoded.length};
+        } else if (decoded is Map<String, dynamic>) {
+          return {
+            'data': decoded['data'] as List<dynamic>? ?? [],
+            'total': decoded['total'] ?? (decoded['data'] as List<dynamic>? ?? []).length,
+          };
+        }
+      }
       throw Exception('Failed to load permissions');
     } catch (e) {
       throw Exception('Network error: $e');
@@ -1221,19 +1244,33 @@ class ApiService {
     }
   }
 
-  /// Get leave requests for the logged-in employee
-  static Future<List<dynamic>> getMyLeaveRequests(int userId) async {
+  /// Get leave requests for the logged-in employee (with pagination and month filter)
+  static Future<Map<String, dynamic>> getMyLeaveRequests(
+    int userId, {
+    String? month,
+    int page = 1,
+    int limit = 15,
+  }) async {
     try {
+      final queryParams = {
+        'user_id': userId.toString(),
+        'page': page.toString(),
+        'limit': limit.toString(),
+        if (month != null && month.isNotEmpty) 'month': month,
+      };
       final uri = Uri.parse(
         '$baseUrl/leave/requests',
-      ).replace(queryParameters: {'user_id': userId.toString()});
+      ).replace(queryParameters: queryParams);
       final response = await http.get(
         uri,
         headers: {'Content-Type': 'application/json'},
       );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return data['data'] as List<dynamic>;
+        return {
+          'data': data['data'] as List<dynamic>,
+          'total': data['total'] ?? (data['data'] as List<dynamic>).length,
+        };
       }
       throw Exception('Failed to load leave requests');
     } catch (e) {
@@ -1612,7 +1649,7 @@ class ApiService {
     }
   }
 
-  /// Returns the user record directly from users table
+  /// Returns the user record directly from users table or /employees endpoint
   /// GET /users/by-username?username=MEPL001
   static Future<Map<String, dynamic>?> getUserByUsername(String username) async {
     try {
@@ -1623,11 +1660,58 @@ class ApiService {
       );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return data['user'] != null ? Map<String, dynamic>.from(data['user']) : null;
+        if (data['user'] != null) {
+          return Map<String, dynamic>.from(data['user']);
+        }
+      }
+    } catch (e) {
+      print('getUserByUsername /users/by-username error: $e');
+    }
+
+    // Fallback: Query /employees?search=username
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/employees').replace(queryParameters: {'search': username}),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final list = (data is List) ? data : (data['data'] as List? ?? []);
+        final uUpper = username.toUpperCase().trim();
+        final match = list.firstWhere(
+          (x) => x['username']?.toString().toUpperCase() == uUpper ||
+                 x['employee_id']?.toString() == username ||
+                 x['employee_no']?.toString() == username,
+          orElse: () => list.isNotEmpty ? list.first : null,
+        );
+        if (match != null) {
+          return Map<String, dynamic>.from(match);
+        }
+      }
+    } catch (e) {
+      print('getUserByUsername /employees fallback error: $e');
+    }
+
+    return null;
+  }
+
+  /// Fetches current dynamic company seal image URL
+  /// GET /company-settings/seal
+  static Future<String?> getCompanySeal() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/company-settings/seal'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true && data['seal_url'] != null) {
+          return data['seal_url'].toString();
+        }
       }
       return null;
     } catch (e) {
-      print('getUserByUsername error: $e');
+      print('getCompanySeal error: $e');
       return null;
     }
   }

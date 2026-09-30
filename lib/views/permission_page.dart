@@ -40,7 +40,15 @@ class _PermissionPageState extends State<PermissionPage>
 
   bool _isSubmitting = false;
   bool _isLoadingHistory = true;
+  bool _isLoadingMoreHistory = false;
+  int _historyPage = 1;
+  bool _hasMoreHistory = true;
+  static const int _historyPageLimit = 15;
+  DateTime? _selectedHistoryMonth; // null = all months
+  final ScrollController _historyScrollCtrl = ScrollController();
+
   List<dynamic> _myPermissions = [];
+  List<dynamic> _allUserPermissions = []; // Cached full list for calculating usedMinutes/remaining limits accurately
 
   // ── Approver Logic ────────────────────────────────────────────────────────
   List<dynamic> _fixedApprovers = [];
@@ -64,11 +72,31 @@ class _PermissionPageState extends State<PermissionPage>
         setState(() => _tab = _tabCtrl.index);
       }
     });
+    _historyScrollCtrl.addListener(_onHistoryScroll);
     _fetchHistory();
+    _fetchAllPermissionsForLimits();
     final user = storage.read('user') ?? {};
     _hasAcceptAccess =
         user['accept_access'] == 1 || user['accept_access'] == true;
     _loadApproverStatus();
+  }
+
+  void _onHistoryScroll() {
+    if (_historyScrollCtrl.position.pixels >=
+            _historyScrollCtrl.position.maxScrollExtent - 200 &&
+        !_isLoadingHistory &&
+        !_isLoadingMoreHistory &&
+        _hasMoreHistory) {
+      _loadMoreHistory();
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    _historyScrollCtrl.dispose();
+    _reasonController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadApproverStatus() async {
@@ -107,14 +135,43 @@ class _PermissionPageState extends State<PermissionPage>
     }
   }
 
-  Future<void> _fetchHistory() async {
-    setState(() => _isLoadingHistory = true);
+  Future<void> _fetchAllPermissionsForLimits() async {
     try {
       final user = storage.read('user');
-      final result = await ApiService.getPermissions(user['id']);
+      if (user == null) return;
+      final res = await ApiService.getPermissions(user['id']);
       if (mounted) {
         setState(() {
-          _myPermissions = result;
+          _allUserPermissions = res['data'] ?? [];
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load user permissions for limits: $e');
+    }
+  }
+
+  Future<void> _fetchHistory({bool showLoading = true}) async {
+    if (showLoading) setState(() => _isLoadingHistory = true);
+    _historyPage = 1;
+    _hasMoreHistory = true;
+    try {
+      final user = storage.read('user');
+      if (user == null) return;
+      final monthStr = _selectedHistoryMonth != null
+          ? DateFormat('yyyy-MM').format(_selectedHistoryMonth!)
+          : null;
+      final result = await ApiService.getPermissions(
+        user['id'],
+        month: monthStr,
+        page: 1,
+        limit: _historyPageLimit,
+      );
+      final List<dynamic> list = result['data'] ?? [];
+      final int total = result['total'] ?? list.length;
+      if (mounted) {
+        setState(() {
+          _myPermissions = list;
+          _hasMoreHistory = list.length < total;
         });
       }
     } catch (e) {
@@ -124,9 +181,42 @@ class _PermissionPageState extends State<PermissionPage>
     }
   }
 
+  Future<void> _loadMoreHistory() async {
+    if (_isLoadingMoreHistory || !_hasMoreHistory) return;
+    setState(() => _isLoadingMoreHistory = true);
+    try {
+      final user = storage.read('user');
+      if (user == null) return;
+      final nextPage = _historyPage + 1;
+      final monthStr = _selectedHistoryMonth != null
+          ? DateFormat('yyyy-MM').format(_selectedHistoryMonth!)
+          : null;
+      final result = await ApiService.getPermissions(
+        user['id'],
+        month: monthStr,
+        page: nextPage,
+        limit: _historyPageLimit,
+      );
+      final List<dynamic> list = result['data'] ?? [];
+      final int total = result['total'] ?? (_myPermissions.length + list.length);
+      if (mounted) {
+        setState(() {
+          _myPermissions.addAll(list);
+          _historyPage = nextPage;
+          _hasMoreHistory = _myPermissions.length < total;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load more permissions: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingMoreHistory = false);
+    }
+  }
+
   int _usedMinutesForMonth(DateTime monthRef) {
     int used = 0;
-    for (var p in _myPermissions) {
+    final listToCheck = _allUserPermissions.isNotEmpty ? _allUserPermissions : _myPermissions;
+    for (var p in listToCheck) {
       if (p['status'] == 'rejected') continue;
       final dt = DateTime.tryParse(p['date'] ?? '') ?? DateTime(0);
       if (dt.year == monthRef.year && dt.month == monthRef.month) {
@@ -822,38 +912,49 @@ class _PermissionPageState extends State<PermissionPage>
   }
 
   Widget _buildHistoryTab() {
-    if (_isLoadingHistory) {
-      return const Center(child: CircularProgressIndicator(color: _black));
-    }
-
-    if (_myPermissions.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.history_rounded, size: 64, color: _lightGray),
-            const SizedBox(height: 16),
-            const Text(
-              'No permissions found',
-              style: TextStyle(
-                color: _mediumGray,
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.only(left: 20, right: 20, top: 16, bottom: 120),
-      itemCount: _myPermissions.length,
-      itemBuilder: (context, index) {
-        final p = _myPermissions[index];
-        final status = p['status'].toString();
-        final isPending = status == 'pending';
-        final isAppr = status == 'approved';
+    return Column(
+      children: [
+        _buildHistoryMonthFilterBar(),
+        Expanded(
+          child: _isLoadingHistory
+              ? const Center(child: CircularProgressIndicator(color: _black))
+              : _myPermissions.isEmpty
+                  ? _buildHistoryEmptyState()
+                  : RefreshIndicator(
+                      color: _black,
+                      onRefresh: () => _fetchHistory(showLoading: false),
+                      child: ListView.builder(
+                        controller: _historyScrollCtrl,
+                        physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics(),
+                        ),
+                        padding: const EdgeInsets.only(
+                          left: 20,
+                          right: 20,
+                          top: 12,
+                          bottom: 120,
+                        ),
+                        itemCount: _myPermissions.length +
+                            (_hasMoreHistory || _isLoadingMoreHistory ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (index == _myPermissions.length) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              alignment: Alignment.center,
+                              child: const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: _black,
+                                ),
+                              ),
+                            );
+                          }
+                          final p = _myPermissions[index];
+                          final status = p['status'].toString();
+                          final isPending = status == 'pending';
+                          final isAppr = status == 'approved';
 
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
@@ -1124,6 +1225,374 @@ class _PermissionPageState extends State<PermissionPage>
           ),
         );
       },
+    ),
+  ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHistoryMonthFilterBar() {
+    final hasMonth = _selectedHistoryMonth != null;
+    final displayMonth = hasMonth
+        ? DateFormat('MMMM yyyy').format(_selectedHistoryMonth!)
+        : 'All Permissions (Lifetime)';
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: _pureWhite,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: hasMonth ? _black.withOpacity(0.2) : _lightGray,
+          width: hasMonth ? 1.2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: _black.withOpacity(0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () {
+              if (hasMonth) {
+                setState(() {
+                  _selectedHistoryMonth = DateTime(
+                    _selectedHistoryMonth!.year,
+                    _selectedHistoryMonth!.month - 1,
+                    1,
+                  );
+                });
+                _fetchHistory();
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: hasMonth ? _bg : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.chevron_left_rounded,
+                size: 20,
+                color: hasMonth ? _black : _lightGray,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _showHistoryMonthPickerBottomSheet,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.calendar_month_rounded,
+                    size: 16,
+                    color: hasMonth ? _black : _mediumGray,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      displayMonth,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: hasMonth ? _black : _charcoal,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: _mediumGray,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          if (hasMonth)
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _selectedHistoryMonth = DateTime(
+                    _selectedHistoryMonth!.year,
+                    _selectedHistoryMonth!.month + 1,
+                    1,
+                  );
+                });
+                _fetchHistory();
+              },
+              child: Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: _bg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: _black,
+                ),
+              ),
+            )
+          else
+            const SizedBox(width: 30),
+        ],
+      ),
+    );
+  }
+
+  void _showHistoryMonthPickerBottomSheet() {
+    int pickerYear = _selectedHistoryMonth?.year ?? DateTime.now().year;
+
+    Get.bottomSheet(
+      StatefulBuilder(
+        builder: (context, setModalState) {
+          final now = DateTime.now();
+          final months = [
+            'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+          ];
+
+          return Container(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+            decoration: const BoxDecoration(
+              color: _pureWhite,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _lightGray,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Select Month',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: _black,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        setState(() => _selectedHistoryMonth = null);
+                        _fetchHistory();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _selectedHistoryMonth == null ? _black : _bg,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          'Show All',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: _selectedHistoryMonth == null
+                                ? _pureWhite
+                                : _charcoal,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left_rounded, color: _black),
+                      onPressed: () {
+                        setModalState(() => pickerYear--);
+                      },
+                    ),
+                    Text(
+                      '$pickerYear',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: _black,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right_rounded, color: _black),
+                      onPressed: () {
+                        setModalState(() => pickerYear++);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    childAspectRatio: 1.8,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemCount: 12,
+                  itemBuilder: (context, idx) {
+                    final monthIndex = idx + 1;
+                    final isSelected = _selectedHistoryMonth != null &&
+                        _selectedHistoryMonth!.year == pickerYear &&
+                        _selectedHistoryMonth!.month == monthIndex;
+                    final isCurrentMonth =
+                        now.year == pickerYear && now.month == monthIndex;
+
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        setState(() {
+                          _selectedHistoryMonth = DateTime(pickerYear, monthIndex, 1);
+                        });
+                        _fetchHistory();
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? _black
+                              : isCurrentMonth
+                                  ? _bg
+                                  : _offWhite,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected
+                                ? _black
+                                : isCurrentMonth
+                                    ? _lightGray
+                                    : Colors.transparent,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          months[idx],
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: isSelected || isCurrentMonth
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                            color: isSelected ? _pureWhite : _black,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+      isScrollControlled: true,
+    );
+  }
+
+  Widget _buildHistoryEmptyState() {
+    final hasMonth = _selectedHistoryMonth != null;
+    final monthName = hasMonth
+        ? DateFormat('MMMM yyyy').format(_selectedHistoryMonth!)
+        : '';
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: _bg,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(
+                Icons.history_rounded,
+                size: 36,
+                color: _mediumGray,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              hasMonth ? 'No permissions in $monthName' : 'No permissions found',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: _black,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              hasMonth
+                  ? 'There are no permission requests recorded for this month.'
+                  : 'Your submitted permission requests will appear here',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                color: _mediumGray,
+                height: 1.4,
+              ),
+            ),
+            if (hasMonth) ...[
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: () {
+                  setState(() => _selectedHistoryMonth = null);
+                  _fetchHistory();
+                },
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: _lightGray),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                ),
+                child: const Text(
+                  'Show All Permissions',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _black,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

@@ -51,6 +51,12 @@ class _LeavePageState extends State<LeavePage>
   // leave history
   List<dynamic> _requests = [];
   bool _loadingRequests = true;
+  bool _loadingMoreRequests = false;
+  int _requestsPage = 1;
+  bool _hasMoreRequests = true;
+  static const int _requestsPageLimit = 15;
+  DateTime? _selectedMonth; // null = all months, DateTime(YYYY, MM, 1) = specific month
+  final ScrollController _historyScrollCtrl = ScrollController();
 
   bool get _hasPendingRequest {
     return _requests.any(
@@ -95,9 +101,20 @@ class _LeavePageState extends State<LeavePage>
         role == 'admin' || role == 'manager' || _hasAcceptAccess;
 
     _tabCtrl = TabController(length: 2, vsync: this);
+    _historyScrollCtrl.addListener(_onHistoryScroll);
     _loadBalance();
     _loadRequests();
     _loadApproverStatus();
+  }
+
+  void _onHistoryScroll() {
+    if (_historyScrollCtrl.position.pixels >=
+            _historyScrollCtrl.position.maxScrollExtent - 200 &&
+        !_loadingRequests &&
+        !_loadingMoreRequests &&
+        _hasMoreRequests) {
+      _loadMoreRequests();
+    }
   }
 
   Future<void> _loadApproverStatus() async {
@@ -157,6 +174,7 @@ class _LeavePageState extends State<LeavePage>
   @override
   void dispose() {
     _tabCtrl.dispose();
+    _historyScrollCtrl.dispose();
     super.dispose();
   }
 
@@ -173,15 +191,61 @@ class _LeavePageState extends State<LeavePage>
     if (mounted) setState(() => _loadingBalance = false);
   }
 
-  Future<void> _loadRequests() async {
-    setState(() => _loadingRequests = true);
+  Future<void> _loadRequests({bool showLoading = true}) async {
+    if (showLoading) setState(() => _loadingRequests = true);
+    _requestsPage = 1;
+    _hasMoreRequests = true;
     try {
       final user = storage.read('user');
       if (user == null) return;
-      final list = await ApiService.getMyLeaveRequests(user['id'] as int);
-      if (mounted) setState(() => _requests = list);
+      final monthStr = _selectedMonth != null
+          ? DateFormat('yyyy-MM').format(_selectedMonth!)
+          : null;
+      final res = await ApiService.getMyLeaveRequests(
+        user['id'] as int,
+        month: monthStr,
+        page: 1,
+        limit: _requestsPageLimit,
+      );
+      final List<dynamic> list = res['data'] ?? [];
+      final int total = res['total'] ?? list.length;
+      if (mounted) {
+        setState(() {
+          _requests = list;
+          _hasMoreRequests = list.length < total;
+        });
+      }
     } catch (_) {}
     if (mounted) setState(() => _loadingRequests = false);
+  }
+
+  Future<void> _loadMoreRequests() async {
+    if (_loadingMoreRequests || !_hasMoreRequests) return;
+    setState(() => _loadingMoreRequests = true);
+    try {
+      final user = storage.read('user');
+      if (user == null) return;
+      final nextPage = _requestsPage + 1;
+      final monthStr = _selectedMonth != null
+          ? DateFormat('yyyy-MM').format(_selectedMonth!)
+          : null;
+      final res = await ApiService.getMyLeaveRequests(
+        user['id'] as int,
+        month: monthStr,
+        page: nextPage,
+        limit: _requestsPageLimit,
+      );
+      final List<dynamic> list = res['data'] ?? [];
+      final int total = res['total'] ?? (_requests.length + list.length);
+      if (mounted) {
+        setState(() {
+          _requests.addAll(list);
+          _requestsPage = nextPage;
+          _hasMoreRequests = _requests.length < total;
+        });
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loadingMoreRequests = false);
   }
 
   // ── Pick date range ───────────────────────────────────────────────────────
@@ -2133,59 +2197,424 @@ class _LeavePageState extends State<LeavePage>
   // ── History Tab ───────────────────────────────────────────────────────────
 
   Widget _buildHistoryTab() {
-    if (_loadingRequests) {
-      return const Center(
-        child: CircularProgressIndicator(color: _charcoal, strokeWidth: 2),
-      );
-    }
-    if (_requests.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(40),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
+    return Column(
+      children: [
+        _buildHistoryMonthFilterBar(),
+        Expanded(
+          child: _loadingRequests
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: _charcoal,
+                    strokeWidth: 2,
+                  ),
+                )
+              : _requests.isEmpty
+                  ? _buildHistoryEmptyState()
+                  : RefreshIndicator(
+                      color: _charcoal,
+                      onRefresh: () => _loadRequests(showLoading: false),
+                      child: ListView.builder(
+                        controller: _historyScrollCtrl,
+                        physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics(),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+                        itemCount:
+                            _requests.length + (_hasMoreRequests || _loadingMoreRequests ? 1 : 0),
+                        itemBuilder: (context, i) {
+                          if (i == _requests.length) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              alignment: Alignment.center,
+                              child: const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: _charcoal,
+                                ),
+                              ),
+                            );
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _requestCard(_requests[i]),
+                          );
+                        },
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHistoryMonthFilterBar() {
+    final hasMonth = _selectedMonth != null;
+    final displayMonth = hasMonth
+        ? DateFormat('MMMM yyyy').format(_selectedMonth!)
+        : 'All Requests (Lifetime)';
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: _pureWhite,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: hasMonth ? _black.withOpacity(0.2) : _lightGray,
+          width: hasMonth ? 1.2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: _black.withOpacity(0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () {
+              if (hasMonth) {
+                setState(() {
+                  _selectedMonth = DateTime(
+                    _selectedMonth!.year,
+                    _selectedMonth!.month - 1,
+                    1,
+                  );
+                });
+                _loadRequests();
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: hasMonth ? _softGray : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.chevron_left_rounded,
+                size: 20,
+                color: hasMonth ? _black : _lightGray,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _showMonthPickerBottomSheet,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.calendar_month_rounded,
+                    size: 16,
+                    color: hasMonth ? _black : _mediumGray,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      displayMonth,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: hasMonth ? _black : _darkGray,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: _mediumGray,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          if (hasMonth)
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _selectedMonth = DateTime(
+                    _selectedMonth!.year,
+                    _selectedMonth!.month + 1,
+                    1,
+                  );
+                });
+                _loadRequests();
+              },
+              child: Container(
+                padding: const EdgeInsets.all(5),
                 decoration: BoxDecoration(
                   color: _softGray,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
-                  Icons.inbox_outlined,
-                  size: 36,
-                  color: _mediumGray,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'No requests yet',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
+                  Icons.chevron_right_rounded,
+                  size: 20,
                   color: _black,
                 ),
               ),
-              const SizedBox(height: 6),
-              const Text(
-                'Your submitted leave requests will appear here',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: _mediumGray, height: 1.4),
+            )
+          else
+            const SizedBox(width: 30),
+        ],
+      ),
+    );
+  }
+
+  void _showMonthPickerBottomSheet() {
+    int pickerYear = _selectedMonth?.year ?? DateTime.now().year;
+
+    Get.bottomSheet(
+      StatefulBuilder(
+        builder: (context, setModalState) {
+          final now = DateTime.now();
+          final months = [
+            'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+          ];
+
+          return Container(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+            decoration: const BoxDecoration(
+              color: _pureWhite,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _lightGray,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Select Month',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: _black,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    // "All" option to clear month filter
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        setState(() => _selectedMonth = null);
+                        _loadRequests();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _selectedMonth == null
+                              ? _black
+                              : _softGray,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          'Show All',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: _selectedMonth == null
+                                ? _pureWhite
+                                : _darkGray,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Year switcher row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left_rounded, color: _black),
+                      onPressed: () {
+                        setModalState(() => pickerYear--);
+                      },
+                    ),
+                    Text(
+                      '$pickerYear',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: _black,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right_rounded, color: _black),
+                      onPressed: () {
+                        setModalState(() => pickerYear++);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // 12 Months Grid
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    childAspectRatio: 1.8,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemCount: 12,
+                  itemBuilder: (context, idx) {
+                    final monthIndex = idx + 1;
+                    final isSelected = _selectedMonth != null &&
+                        _selectedMonth!.year == pickerYear &&
+                        _selectedMonth!.month == monthIndex;
+                    final isCurrentMonth =
+                        now.year == pickerYear && now.month == monthIndex;
+
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        setState(() {
+                          _selectedMonth = DateTime(pickerYear, monthIndex, 1);
+                        });
+                        _loadRequests();
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? _black
+                              : isCurrentMonth
+                                  ? _softGray
+                                  : _offWhite,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected
+                                ? _black
+                                : isCurrentMonth
+                                    ? _lightGray
+                                    : Colors.transparent,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          months[idx],
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: isSelected || isCurrentMonth
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                            color: isSelected
+                                ? _pureWhite
+                                : _black,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+      isScrollControlled: true,
+    );
+  }
+
+  Widget _buildHistoryEmptyState() {
+    final hasMonth = _selectedMonth != null;
+    final monthName = hasMonth
+        ? DateFormat('MMMM yyyy').format(_selectedMonth!)
+        : '';
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: _softGray,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(
+                Icons.inbox_outlined,
+                size: 36,
+                color: _mediumGray,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              hasMonth ? 'No requests in $monthName' : 'No requests yet',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: _black,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              hasMonth
+                  ? 'There are no leave requests recorded for this month.'
+                  : 'Your submitted leave requests will appear here',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                color: _mediumGray,
+                height: 1.4,
+              ),
+            ),
+            if (hasMonth) ...[
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: () {
+                  setState(() => _selectedMonth = null);
+                  _loadRequests();
+                },
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: _lightGray),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                ),
+                child: const Text(
+                  'Show All Requests',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _black,
+                  ),
+                ),
               ),
             ],
-          ),
+          ],
         ),
-      );
-    }
-    return RefreshIndicator(
-      color: _charcoal,
-      onRefresh: _loadRequests,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 120),
-        itemCount: _requests.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (_, i) => _requestCard(_requests[i]),
       ),
     );
   }

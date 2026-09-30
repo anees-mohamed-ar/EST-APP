@@ -161,38 +161,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with TickerProv
             ],
           ),
           const Spacer(),
-          GestureDetector(
-            onTap: () {
-              final userData = storage.read('user') ?? {};
-              Get.toNamed('/payroll', arguments: {
-                'userId': userData['id'] as int? ?? 0,
-                'displayName': userData['full_name'] ?? userData['username'] ?? '',
-                'username': userData['username'] ?? '',
-              });
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: _charcoal,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.receipt_long_rounded, color: _pureWhite, size: 15),
-                  SizedBox(width: 5),
-                  Text(
-                    'My Payroll',
-                    style: TextStyle(
-                      color: _pureWhite,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
+
           GestureDetector(
             onTap: _loadDashboardData,
             child: Container(

@@ -8,6 +8,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../controllers/login_controller.dart';
 import '../services/api_service.dart';
+import '../constants/app_config.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -785,6 +786,15 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                             style: const TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
+                              color: _textMuted,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Version ${AppConfig.appVersion}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w400,
                               color: _textMuted,
                             ),
                           ),

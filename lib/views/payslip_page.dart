@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -9,6 +10,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as syncfusion;
+import 'package:http/http.dart' as http;
 import '../services/api_service.dart';
 
 class PayslipPage extends StatefulWidget {
@@ -25,14 +27,24 @@ class PayslipPage extends StatefulWidget {
   State<PayslipPage> createState() => _PayslipPageState();
 }
 
-class _PayslipPageState extends State<PayslipPage> {
+class _PayslipPageState extends State<PayslipPage> with TickerProviderStateMixin {
   bool _isAuthenticated = false;
   bool _isInitLoading = true;
+  bool _isUnlocking = false;
   String _enteredPin = '';
   String _authError = '';
   bool _useSystemKeyboard = false;
   final TextEditingController _pinController = TextEditingController();
   final FocusNode _pinFocusNode = FocusNode();
+
+  // Animation Controllers
+  late AnimationController _lockPulseController;
+  late AnimationController _shakeController;
+  late AnimationController _paperDisperseController;
+
+  late Animation<double> _lockScaleAnimation;
+  late Animation<double> _lockRotationAnimation;
+  late Animation<double> _shakeAnimation;
 
   List<Map<String, dynamic>> _months      = [];
   String?                    _selectedKey;
@@ -48,11 +60,45 @@ class _PayslipPageState extends State<PayslipPage> {
   @override
   void initState() {
     super.initState();
+    _initAnimations();
     _loadInitialData();
+  }
+
+  void _initAnimations() {
+    // 1. Gentle floating lock pulse
+    _lockPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat(reverse: true);
+
+    _lockScaleAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+      CurvedAnimation(parent: _lockPulseController, curve: Curves.easeInOutSine),
+    );
+    _lockRotationAnimation = Tween<double>(begin: -0.015, end: 0.015).animate(
+      CurvedAnimation(parent: _lockPulseController, curve: Curves.easeInOutSine),
+    );
+
+    // 2. Error Shake Animation
+    _shakeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 450),
+    );
+    _shakeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _shakeController, curve: Curves.easeInOut),
+    );
+
+    // 3. Unlock transition — clean flash + slide-up
+    _paperDisperseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
   }
 
   @override
   void dispose() {
+    _lockPulseController.dispose();
+    _shakeController.dispose();
+    _paperDisperseController.dispose();
     _pinController.dispose();
     _pinFocusNode.dispose();
     super.dispose();
@@ -159,6 +205,41 @@ class _PayslipPageState extends State<PayslipPage> {
     }
   }
 
+  /// Helper to extract 2-digit day and 2-digit month (DDMM) from date string (supports YYYY-MM-DD, DD-MM-YYYY, etc.)
+  String? _extractDayMonth(dynamic dateVal) {
+    if (dateVal == null) return null;
+    final s = dateVal.toString().trim();
+    if (s.isEmpty || s == 'null' || s == '—') return null;
+
+    try {
+      if (s.contains('-') || s.contains('/') || s.contains('.')) {
+        final separator = s.contains('-') ? '-' : (s.contains('/') ? '/' : '.');
+        final parts = s.split(separator);
+        if (parts.length >= 3) {
+          // Check if format is YYYY-MM-DD
+          if (parts[0].length == 4) {
+            final month = parts[1].padLeft(2, '0');
+            final day = parts[2].split('T')[0].padLeft(2, '0');
+            return '$day$month';
+          }
+          // Check if format is DD-MM-YYYY
+          if (parts[2].split('T')[0].length == 4) {
+            final day = parts[0].padLeft(2, '0');
+            final month = parts[1].padLeft(2, '0');
+            return '$day$month';
+          }
+        }
+      }
+      final dt = DateTime.tryParse(s);
+      if (dt != null) {
+        final d = dt.day.toString().padLeft(2, '0');
+        final m = dt.month.toString().padLeft(2, '0');
+        return '$d$m';
+      }
+    } catch (_) {}
+    return null;
+  }
+
   bool _isPasscodeValid(String entered, Map<String, dynamic> slip) {
     final cleanEntered = entered.trim().toUpperCase();
     if (cleanEntered.isEmpty) return false;
@@ -177,50 +258,78 @@ class _PayslipPageState extends State<PayslipPage> {
       id3 = idDigits.padLeft(3, '0');
     }
 
-    final List<String> candidateYears = [];
+    final List<String> candidateDateSuffixes = [];
 
-    // 1. Fetch DOB from users table
-    final dobStr = user['dob']?.toString() ?? slip['dob']?.toString();
-    if (dobStr != null && dobStr.isNotEmpty && dobStr != 'null') {
-      final match = RegExp(r'\b(19\d\d|20\d\d)\b').firstMatch(dobStr);
-      if (match != null) candidateYears.add(match.group(1)!);
+    // 1. Fetch DOB (DDMM) from users table or slip
+    final dobStr = (user['dob'] ?? slip['dob'])?.toString();
+    final dobDm = _extractDayMonth(dobStr);
+    if (dobDm != null && dobDm.isNotEmpty) {
+      candidateDateSuffixes.add(dobDm);
     }
 
-    // 2. Fallback to Date of Joining from users table
-    final dojStr = (user['user_doj'] ?? user['date_of_joining'] ?? slip['user_doj'] ?? slip['date_of_joining'])?.toString();
-    if (dojStr != null && dojStr.isNotEmpty && dojStr != 'null') {
-      final match = RegExp(r'\b(19\d\d|20\d\d)\b').firstMatch(dojStr);
-      if (match != null) candidateYears.add(match.group(1)!);
+    // 2. Fallback to Date of Joining (DDMM) only if no DOB found
+    if (candidateDateSuffixes.isEmpty) {
+      final dojStr = (user['user_doj'] ?? user['date_of_joining'] ?? slip['user_doj'] ?? slip['date_of_joining'])?.toString();
+      final dojDm = _extractDayMonth(dojStr);
+      if (dojDm != null && dojDm.isNotEmpty) {
+        candidateDateSuffixes.add(dojDm);
+      }
     }
 
-    candidateYears.add('2000'); // default fallback
+    // 3. Fallback default '0101' if neither DOB nor DOJ exists
+    if (candidateDateSuffixes.isEmpty) {
+      candidateDateSuffixes.add('0101');
+    }
 
-    for (final yr in candidateYears) {
-      if (cleanEntered == '$id3$yr' ||
-          cleanEntered == '$idDigits$yr' ||
-          cleanEntered == '${rawUser.toString().toUpperCase()}$yr') {
+    debugPrint('🔐 Checking Passcode: "$cleanEntered"');
+    debugPrint('🔐 User ID Digits: "$idDigits", 3-digit: "$id3", Raw User: "$rawUser"');
+    debugPrint('🔐 Candidate Date Suffixes (DDMM): $candidateDateSuffixes');
+
+    // Check matches against valid candidate credentials
+    for (final dm in candidateDateSuffixes) {
+      if (cleanEntered == '$id3$dm' ||
+          cleanEntered == '$idDigits$dm' ||
+          cleanEntered == '${rawUser.toString().toUpperCase()}$dm') {
+        debugPrint('✅ Passcode matched candidate DDMM: $dm');
         return true;
       }
     }
 
+    debugPrint('❌ Passcode did not match any combination');
     return false;
   }
 
-  void _verifyPasscode() {
+  void _verifyPasscode() async {
     if (_enteredPin.trim().isEmpty) {
       setState(() => _authError = 'Please enter your passcode');
       return;
     }
 
     if (_isPasscodeValid(_enteredPin, _slip ?? {})) {
+      HapticFeedback.heavyImpact();
+      Future.delayed(const Duration(milliseconds: 100), () => HapticFeedback.lightImpact());
+      Future.delayed(const Duration(milliseconds: 250), () => HapticFeedback.lightImpact());
+      Future.delayed(const Duration(milliseconds: 450), () => HapticFeedback.selectionClick());
       setState(() {
-        _isAuthenticated = true;
+        _isUnlocking = true;
         _authError = '';
       });
+      await _paperDisperseController.forward();
+      if (mounted) {
+        setState(() {
+          _isAuthenticated = true;
+          _isUnlocking = false;
+        });
+      }
     } else {
+      // Distinct double-buzz error vibration pattern
       HapticFeedback.heavyImpact();
+      Future.delayed(const Duration(milliseconds: 120), () => HapticFeedback.vibrate());
+      Future.delayed(const Duration(milliseconds: 260), () => HapticFeedback.heavyImpact());
+
+      _shakeController.forward(from: 0.0);
       setState(() {
-        _authError = 'Incorrect passcode. Format: Employee ID (e.g. 001) + Year of Birth (e.g. 2000)';
+        _authError = 'Incorrect passcode. Format: Employee ID (e.g. 001) + Date of Birth DDMM (e.g. 1505)';
         _enteredPin = '';
         _pinController.clear();
       });
@@ -266,9 +375,9 @@ class _PayslipPageState extends State<PayslipPage> {
     return n % 1 == 0 ? n.toInt().toString() : n.toStringAsFixed(1);
   }
 
-  /// Builds password for PDF encryption: Employee ID part + Birth Year (from users table)
-  /// Example: username 'MEPL001' & DOB year '1974' -> password '0011974'
-  /// Example: username 'MEPL261' & DOB year '1986' -> password '2611986'
+  /// Builds password for PDF encryption: Employee ID part + Date of Birth DDMM (from users table)
+  /// Example: username 'MEPL001' & DOB '15-05-1974' -> password '0011505'
+  /// Example: username 'MEPL261' & DOB '22-08-1986' -> password '2612208'
   String _buildPassword(Map<String, dynamic> slip) {
     final user = _userFromDb ?? {};
     final rawUser = widget.username.isNotEmpty
@@ -284,30 +393,21 @@ class _PayslipPageState extends State<PayslipPage> {
       idPart = idPart.padLeft(3, '0');
     }
 
-    // Extract Birth Year directly from users table
-    String birthYear = '';
+    // Extract Date & Month (DDMM) from DOB
     final dobStr = user['dob']?.toString() ?? slip['dob']?.toString();
-    if (dobStr != null && dobStr.isNotEmpty && dobStr != 'null') {
-      final match = RegExp(r'\b(19\d\d|20\d\d)\b').firstMatch(dobStr);
-      if (match != null) {
-        birthYear = match.group(1)!;
-      }
-    }
+    String? dateMonth = _extractDayMonth(dobStr);
 
-    // Fallback: If DOB not populated, check date_of_joining year from users table or default '2000'
-    if (birthYear.isEmpty) {
+    // Fallback: Check date_of_joining if DOB not available
+    if (dateMonth == null || dateMonth.isEmpty) {
       final dojStr = (user['user_doj'] ?? user['date_of_joining'] ?? slip['user_doj'] ?? slip['date_of_joining'])?.toString();
-      if (dojStr != null && dojStr.isNotEmpty && dojStr != 'null') {
-        final match = RegExp(r'\b(19\d\d|20\d\d)\b').firstMatch(dojStr);
-        if (match != null) {
-          birthYear = match.group(1)!;
-        }
-      }
+      dateMonth = _extractDayMonth(dojStr);
     }
 
-    if (birthYear.isEmpty) birthYear = '2000';
+    if (dateMonth == null || dateMonth.isEmpty) {
+      dateMonth = '0101';
+    }
 
-    return '$idPart$birthYear';
+    return '$idPart$dateMonth';
   }
 
   Future<Directory> _getMeplTrackDir() async {
@@ -394,8 +494,27 @@ class _PayslipPageState extends State<PayslipPage> {
       final monthName = _monthLabel(_selectedKey);
 
       pw.MemoryImage? logo;
-      for (final p in ['assets/images/me-logo-clean.png', 'me-logo-clean.png']) {
+      for (final p in [
+        'assets/images/company_logo_in_payslip.jpg',
+        'company_logo_in_payslip.jpg',
+        'assets/images/me-logo-clean.png',
+        'me-logo-clean.png'
+      ]) {
         try { final d = await rootBundle.load(p); logo = pw.MemoryImage(d.buffer.asUint8List()); break; } catch (_) {}
+      }
+
+      pw.MemoryImage? sealImage;
+      try {
+        final sealUrl = await ApiService.getCompanySeal();
+        if (sealUrl != null && sealUrl.isNotEmpty) {
+          final fullUrl = sealUrl.startsWith('http') ? sealUrl : '${ApiService.baseUrl}$sealUrl';
+          final res = await http.get(Uri.parse(fullUrl));
+          if (res.statusCode == 200) {
+            sealImage = pw.MemoryImage(res.bodyBytes);
+          }
+        }
+      } catch (e) {
+        print('Error loading company seal for PDF: $e');
       }
 
       // Computed values from exact DB column names
@@ -588,11 +707,33 @@ class _PayslipPageState extends State<PayslipPage> {
             pw.SizedBox(height: 6),
             mainTable,
             leaveTable,
-            pw.SizedBox(height: 14),
-            pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-              pw.Text('Employee Signature', style: ts(8)),
-              pw.Text('Authorised Signatory - Menaka Electricals Pvt Ltd', style: ts(8)),
-            ]),
+            pw.SizedBox(height: 10),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: [
+                pw.Padding(
+                  padding: const pw.EdgeInsets.only(bottom: 4),
+                  child: pw.Text('Employee Signature', style: ts(8)),
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  mainAxisSize: pw.MainAxisSize.min,
+                  children: [
+                    if (sealImage != null)
+                      pw.Container(
+                        width: 48,
+                        height: 48,
+                        margin: const pw.EdgeInsets.only(bottom: 2),
+                        child: pw.Image(sealImage, fit: pw.BoxFit.contain),
+                      )
+                    else
+                      pw.SizedBox(height: 40),
+                    pw.Text('Authorised Signatory - Menaka Electricals Pvt Ltd', style: ts(8)),
+                  ],
+                ),
+              ],
+            ),
           ]);
         },
       ));
@@ -696,233 +837,338 @@ class _PayslipPageState extends State<PayslipPage> {
           ),
         ),
         body: SafeArea(
-          child: Column(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 10),
-                      // Lock icon card
-                      Container(
-                        width: 64,
-                        height: 64,
-                        decoration: BoxDecoration(
-                          color: _white,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
-                              blurRadius: 16,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                          border: Border.all(color: _borderGrey),
-                        ),
-                        child: const Icon(Icons.lock_outline_rounded, size: 30, color: _charcoalBlack),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Enter Payroll Passcode',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _charcoalBlack),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Employee ID (e.g. 001) + Year of Birth (e.g. 2000)\nExample: 0012000',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 12, color: _subGrey, height: 1.4),
-                      ),
-                      const SizedBox(height: 24),
+          child: AnimatedBuilder(
+            animation: _paperDisperseController,
+            builder: (context, child) {
+              if (!_isUnlocking && _paperDisperseController.value == 0.0) {
+                return child!;
+              }
 
-                      // PIN Code Display Indicator / Text Field
-                      if (!_useSystemKeyboard)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: _white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: _authError.isNotEmpty ? const Color(0xFFEF4444) : _borderGrey,
-                              width: _authError.isNotEmpty ? 1.5 : 1,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.02),
-                                blurRadius: 10,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (_enteredPin.isEmpty)
-                                const Text(
-                                  '• • • • • • •',
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFD1D5DB),
-                                    letterSpacing: 6,
-                                  ),
-                                )
-                              else
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: List.generate(_enteredPin.length, (index) {
-                                    return Container(
-                                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                                      child: Text(
-                                        _enteredPin[index],
-                                        style: const TextStyle(
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.w800,
-                                          color: _charcoalBlack,
-                                          letterSpacing: 2,
-                                        ),
+              final t = _paperDisperseController.value;
+
+              // ── UI: slides upward + fades out smoothly ───────────────────
+              final uiFade   = (1.0 - Curves.easeInQuart.transform(t)).clamp(0.0, 1.0);
+              final slideY   = Curves.easeInCubic.transform(t) * -80.0;
+
+              // ── Flash: white burst at the unlock moment, fades quickly ──────
+              // Peaks at t=0.12, gone by t=0.45
+              final flashAlpha = t < 0.12
+                  ? (t / 0.12) * 0.85
+                  : t < 0.45
+                      ? (1.0 - (t - 0.12) / 0.33) * 0.85
+                      : 0.0;
+
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  // White background that the UI slides off of
+                  const ColoredBox(color: Color(0xFFF8F8F8)),
+
+                  // UI slides up & fades
+                  Opacity(
+                    opacity: uiFade,
+                    child: Transform.translate(
+                      offset: Offset(0, slideY),
+                      child: child,
+                    ),
+                  ),
+
+                  // Clean white flash
+                  if (flashAlpha > 0.01)
+                    ColoredBox(
+                      color: Color.fromRGBO(255, 255, 255, flashAlpha),
+                    ),
+                ],
+              );
+            },
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 10),
+                        // ── Luxury Animated Lock Icon Card ─────────────────────
+                        AnimatedBuilder(
+                          animation: _lockPulseController,
+                          builder: (context, child) {
+                            return Transform.scale(
+                              scale: _lockScaleAnimation.value,
+                              child: Transform.rotate(
+                                angle: _lockRotationAnimation.value,
+                                child: Container(
+                                  width: 72,
+                                  height: 72,
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [_white, Color(0xFFF9FAFB)],
+                                    ),
+                                    borderRadius: BorderRadius.circular(24),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.06),
+                                        blurRadius: 16,
+                                        offset: const Offset(0, 6),
                                       ),
-                                    );
-                                  }),
+                                    ],
+                                    border: Border.all(
+                                      color: _borderGrey,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.lock_rounded,
+                                    size: 32,
+                                    color: _charcoalBlack,
+                                  ),
                                 ),
-                            ],
-                          ),
-                        )
-                      else
-                        Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 16),
-                          decoration: BoxDecoration(
-                            color: _white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: _authError.isNotEmpty ? const Color(0xFFEF4444) : _borderGrey,
-                              width: _authError.isNotEmpty ? 1.5 : 1,
-                            ),
-                          ),
-                          child: TextField(
-                            controller: _pinController,
-                            focusNode: _pinFocusNode,
-                            autofocus: true,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: _charcoalBlack,
-                              letterSpacing: 2,
-                            ),
-                            decoration: InputDecoration(
-                              hintText: 'Enter passcode (letters/digits)',
-                              hintStyle: const TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF9CA3AF),
-                                letterSpacing: 0,
-                                fontWeight: FontWeight.normal,
                               ),
-                              border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                              suffixIcon: IconButton(
-                                icon: const Icon(Icons.clear, size: 18),
-                                onPressed: _onNumpadClear,
-                              ),
-                            ),
-                            onChanged: (val) {
-                              setState(() {
-                                _enteredPin = val;
-                                _authError = '';
-                              });
-                            },
-                            onSubmitted: (_) => _verifyPasscode(),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 18),
+                        const Text(
+                          'Enter Payroll Passcode',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: _charcoalBlack,
+                            letterSpacing: -0.3,
                           ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Employee ID (e.g. 001) + Date & Month of Birth (e.g. 1505)\nExample: 0011505',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 12, color: _subGrey, height: 1.4),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // ── Shaking Animated PIN Indicator / Input ─────────────
+                        AnimatedBuilder(
+                          animation: _shakeController,
+                          builder: (context, child) {
+                            final offset = 14 *
+                                math.sin(_shakeAnimation.value * math.pi * 5) *
+                                (1.0 - _shakeAnimation.value);
+                            return Transform.translate(
+                              offset: Offset(offset, 0),
+                              child: child,
+                            );
+                          },
+                          child: !_useSystemKeyboard
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                                  decoration: BoxDecoration(
+                                    color: _white,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: _authError.isNotEmpty
+                                          ? const Color(0xFFEF4444)
+                                          : _borderGrey,
+                                      width: _authError.isNotEmpty ? 1.5 : 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: _authError.isNotEmpty
+                                            ? const Color(0x1AEF4444)
+                                            : Colors.black.withOpacity(0.03),
+                                        blurRadius: 14,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
+                                  ),
+                                  child: _enteredPin.isEmpty
+                                      ? const Text(
+                                          '• • • • • • •',
+                                          style: TextStyle(
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFFD1D5DB),
+                                            letterSpacing: 8,
+                                          ),
+                                        )
+                                      : Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: List.generate(_enteredPin.length, (index) {
+                                            return TweenAnimationBuilder<double>(
+                                              key: ValueKey('digit_${index}_${_enteredPin[index]}'),
+                                              tween: Tween(begin: 0.5, end: 1.0),
+                                              duration: const Duration(milliseconds: 180),
+                                              curve: Curves.elasticOut,
+                                              builder: (context, scale, child) {
+                                                return Transform.scale(
+                                                  scale: scale,
+                                                  child: Container(
+                                                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFFF3F4F6),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: Text(
+                                                      _enteredPin[index],
+                                                      style: const TextStyle(
+                                                        fontSize: 18,
+                                                        fontWeight: FontWeight.w800,
+                                                        color: _charcoalBlack,
+                                                        letterSpacing: 1.5,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            );
+                                          }),
+                                        ),
+                                )
+                              : Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                                  decoration: BoxDecoration(
+                                    color: _white,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: _authError.isNotEmpty
+                                          ? const Color(0xFFEF4444)
+                                          : _borderGrey,
+                                      width: _authError.isNotEmpty ? 1.5 : 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.03),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: TextField(
+                                    controller: _pinController,
+                                    focusNode: _pinFocusNode,
+                                    autofocus: true,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                      color: _charcoalBlack,
+                                      letterSpacing: 2,
+                                    ),
+                                    decoration: InputDecoration(
+                                      hintText: 'Enter passcode (letters/digits)',
+                                      hintStyle: const TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF9CA3AF),
+                                        letterSpacing: 0,
+                                        fontWeight: FontWeight.normal,
+                                      ),
+                                      border: InputBorder.none,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                      suffixIcon: IconButton(
+                                        icon: const Icon(Icons.clear, size: 18),
+                                        onPressed: _onNumpadClear,
+                                      ),
+                                    ),
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _enteredPin = val;
+                                        _authError = '';
+                                      });
+                                    },
+                                    onSubmitted: (_) => _verifyPasscode(),
+                                  ),
+                                ),
                         ),
 
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 12),
 
-                      // Keyboard mode toggle button (Fallback option)
-                      TextButton.icon(
-                        onPressed: _toggleKeyboardMode,
-                        style: TextButton.styleFrom(
-                          foregroundColor: _charcoalBlack,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        ),
-                        icon: Icon(
-                          _useSystemKeyboard ? Icons.dialpad_rounded : Icons.keyboard_alt_outlined,
-                          size: 16,
-                          color: _subGrey,
-                        ),
-                        label: Text(
-                          _useSystemKeyboard ? 'Use On-Screen Numpad' : 'Use Full Keyboard (Fallback)',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                        // Keyboard mode toggle button (Fallback option)
+                        TextButton.icon(
+                          onPressed: _toggleKeyboardMode,
+                          style: TextButton.styleFrom(
+                            foregroundColor: _charcoalBlack,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          ),
+                          icon: Icon(
+                            _useSystemKeyboard ? Icons.dialpad_rounded : Icons.keyboard_alt_outlined,
+                            size: 16,
                             color: _subGrey,
                           ),
-                        ),
-                      ),
-
-                      if (_authError.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFEE2E2),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFFFCA5A5)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.error_outline_rounded, size: 15, color: Color(0xFFDC2626)),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  _authError,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(fontSize: 11, color: Color(0xFFDC2626), fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-
-                      if (_useSystemKeyboard) ...[
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton(
-                            onPressed: _enteredPin.isNotEmpty ? _verifyPasscode : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _charcoalBlack,
-                              disabledBackgroundColor: const Color(0xFFE5E7EB),
-                              foregroundColor: _white,
-                              disabledForegroundColor: const Color(0xFF9CA3AF),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              elevation: 0,
+                          label: Text(
+                            _useSystemKeyboard ? 'Use On-Screen Numpad' : 'Use Full Keyboard (Fallback)',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _subGrey,
                             ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                          ),
+                        ),
+
+                        if (_authError.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEE2E2),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFFFCA5A5)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.lock_open_rounded, size: 18),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Unlock Payroll',
-                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                                const Icon(Icons.error_outline_rounded, size: 15, color: Color(0xFFDC2626)),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    _authError,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 11, color: Color(0xFFDC2626), fontWeight: FontWeight.w600),
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                        ),
+                        ],
+
+                        if (_useSystemKeyboard) ...[
+                          const SizedBox(height: 24),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ElevatedButton(
+                              onPressed: _enteredPin.isNotEmpty ? _verifyPasscode : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _charcoalBlack,
+                                disabledBackgroundColor: const Color(0xFFE5E7EB),
+                                foregroundColor: _white,
+                                disabledForegroundColor: const Color(0xFF9CA3AF),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                elevation: 0,
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.lock_open_rounded, size: 18),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Unlock Payroll',
+                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
 
-              // Custom Numpad (Shown when not in system keyboard mode)
-              if (!_useSystemKeyboard) _buildCustomNumpad(),
-            ],
+                // Custom Numpad (Shown when not in system keyboard mode)
+                if (!_useSystemKeyboard) _buildCustomNumpad(),
+              ],
+            ),
           ),
         ),
       );
@@ -1081,30 +1327,33 @@ class _PayslipPageState extends State<PayslipPage> {
   }
 
   Widget _buildNumpadKey(String value) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          _onNumpadPress(value);
-        },
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          width: 72,
-          height: 52,
-          decoration: BoxDecoration(
-            color: _bgSoft,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: _borderGrey, width: 1),
-          ),
-          child: Center(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: _charcoalBlack,
-              ),
+    return _PressableKey(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        _onNumpadPress(value);
+      },
+      child: Container(
+        width: 76,
+        height: 56,
+        decoration: BoxDecoration(
+          color: _white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _borderGrey, width: 1.2),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x08000000),
+              blurRadius: 8,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: _charcoalBlack,
             ),
           ),
         ),
@@ -1113,34 +1362,37 @@ class _PayslipPageState extends State<PayslipPage> {
   }
 
   Widget _buildActionKey({IconData? icon, String? label, required VoidCallback onTap}) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          onTap();
-        },
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          width: 72,
-          height: 52,
-          decoration: BoxDecoration(
-            color: _bgSoft,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: _borderGrey, width: 1),
-          ),
-          child: Center(
-            child: label != null
-                ? Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: _charcoalBlack,
-                    ),
-                  )
-                : Icon(icon, size: 20, color: _charcoalBlack),
-          ),
+    return _PressableKey(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+      child: Container(
+        width: 76,
+        height: 56,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3F4F6),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFE5E7EB), width: 1.2),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x05000000),
+              blurRadius: 6,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Center(
+          child: label != null
+              ? Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: _charcoalBlack,
+                  ),
+                )
+              : Icon(icon, size: 20, color: _charcoalBlack),
         ),
       ),
     );
@@ -1287,6 +1539,53 @@ class _PayslipPageState extends State<PayslipPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.asset(
+                  'assets/images/company_logo_in_payslip.jpg',
+                  width: 36,
+                  height: 36,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'MENAKA ELECTRICALS PVT LTD',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: _charcoalBlack,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    Text(
+                      'Singaperumalkoil, Chengalpattu',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: _subGrey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: _bgSoft, borderRadius: BorderRadius.circular(6), border: Border.all(color: _borderGrey)),
+                child: Text(_monthLabel(_selectedKey), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _darkGrey)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: _borderGrey),
+          const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1671,4 +1970,56 @@ class _PayslipPageState extends State<PayslipPage> {
     );
   }
 }
+
+/// Helper widget for physics-based press down feedback
+class _PressableKey extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+
+  const _PressableKey({required this.child, required this.onTap});
+
+  @override
+  State<_PressableKey> createState() => _PressableKeyState();
+}
+
+class _PressableKeyState extends State<_PressableKey> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 90),
+      reverseDuration: const Duration(milliseconds: 140),
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.90).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        widget.onTap();
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 

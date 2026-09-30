@@ -25,6 +25,8 @@ class PayrollPdfService {
 
     pw.MemoryImage? logoImage;
     for (final path in [
+      'assets/images/company_logo_in_payslip.jpg',
+      'company_logo_in_payslip.jpg',
       'assets/images/me-logo-clean.png',
       'me-logo-clean.png',
     ]) {
