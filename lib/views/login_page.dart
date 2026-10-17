@@ -9,6 +9,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../controllers/login_controller.dart';
 import '../services/api_service.dart';
 import '../constants/app_config.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -781,12 +782,20 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                             ],
                           ),
                           const SizedBox(height: 6),
-                          Text(
-                            'Developed by iMatrix Technologies Pvt Ltd © ${DateTime.now().year}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: _textMuted,
+                          GestureDetector(
+                            onTap: () async {
+                              final uri = Uri.parse('https://www.imatrixtechnologies.com');
+                              if (await canLaunchUrl(uri)) {
+                                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                              }
+                            },
+                            child: Text(
+                              'Developed by iMatrix Technologies Pvt Ltd © ${DateTime.now().year}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: _textMuted,
+                              ),
                             ),
                           ),
                           const SizedBox(height: 4),

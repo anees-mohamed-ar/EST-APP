@@ -41,6 +41,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
   int _currentPage = 0;
   static const int _pageSize = 500; // records per page
   Map<String, dynamic>? _paginationInfo;
+  String _employeeType = 'regular'; // 'regular' or 'local'
 
   // ── Search ────────────────────────────────────────────────────────────────
   final TextEditingController _searchCtrl = TextEditingController();
@@ -153,6 +154,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
         limit: _pageSize,
         offset: _currentPage * _pageSize,
         search: _searchQuery.isNotEmpty ? _searchQuery : null,
+        employeeType: _employeeType,
       );
 
       if (!mounted) return;
@@ -393,8 +395,108 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
         const SizedBox(width: 12),
       ],
       bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(54),
-        child: _buildSearchBar(),
+        preferredSize: const Size.fromHeight(104),
+        child: Column(
+          children: [
+            _buildTypeSegmented(),
+            _buildSearchBar(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTypeSegmented() {
+    return Container(
+      height: 40,
+      margin: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                if (_employeeType != 'regular') {
+                  setState(() => _employeeType = 'regular');
+                  _load();
+                }
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  color: _employeeType == 'regular' ? _card : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: _employeeType == 'regular'
+                      ? [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 1))]
+                      : null,
+                ),
+                alignment: Alignment.center,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.badge_outlined,
+                      size: 14,
+                      color: _employeeType == 'regular' ? _textPrimary : _textSecondary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Regular Staff',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: _employeeType == 'regular' ? FontWeight.w700 : FontWeight.w500,
+                        color: _employeeType == 'regular' ? _textPrimary : _textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                if (_employeeType != 'local') {
+                  setState(() => _employeeType = 'local');
+                  _load();
+                }
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  color: _employeeType == 'local' ? _card : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: _employeeType == 'local'
+                      ? [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 1))]
+                      : null,
+                ),
+                alignment: Alignment.center,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.access_time_filled_rounded,
+                      size: 14,
+                      color: _employeeType == 'local' ? const Color(0xFFEA580C) : _textSecondary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Local Staff (TEMP)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: _employeeType == 'local' ? FontWeight.w700 : FontWeight.w500,
+                        color: _employeeType == 'local' ? const Color(0xFFEA580C) : _textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -950,15 +1052,42 @@ class _AdminAttendancePageState extends State<AdminAttendancePage>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          username,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: _textPrimary,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                username,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: _textPrimary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if ((u['employee_type'] ?? '') == 'local' ||
+                                username.toUpperCase().startsWith('TEMP')) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF7ED),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: const Color(0xFFFDBA74)),
+                                ),
+                                child: const Text(
+                                  'TEMP',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFFEA580C),
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 1),
                         Text(

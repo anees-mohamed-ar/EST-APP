@@ -52,6 +52,7 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
   bool loading = true;
   bool proceeding = false;
   int _swipeKeyCounter = 0;
+  String _employeeTypeFilter = 'regular'; // 'regular' or 'local'
 
   List<dynamic> sites = [];
 
@@ -62,9 +63,16 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
   String get todayStr => DateFormat('yyyy-MM-dd').format(DateTime.now());
 
   List<dynamic> get _filtered {
-    if (_query.isEmpty) return allUsers;
+    final typeFiltered = allUsers.where((u) {
+      final isLocal = (u['employee_type'] ?? '').toString() == 'local' ||
+          (u['username'] ?? '').toString().toUpperCase().startsWith('TEMP');
+      if (_employeeTypeFilter == 'local') return isLocal;
+      return !isLocal;
+    }).toList();
+
+    if (_query.isEmpty) return typeFiltered;
     final q = _query.toLowerCase();
-    return allUsers.where((u) {
+    return typeFiltered.where((u) {
       final username = (u['username'] ?? '').toString().toLowerCase();
       final fullName = (u['full_name'] ?? '').toString().toLowerCase();
       final role = (u['role'] ?? '').toString().toLowerCase();
@@ -451,7 +459,10 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
   Widget build(BuildContext context) {
     final actionLabel = isCheckIn ? 'Check-In' : 'Check-Out';
     final filtered = _filtered;
-    final eligibleCount = allUsers.where((u) => _statusFor(u).eligible).length;
+    final eligibleCount = filtered.where((u) => _statusFor(u).eligible).length;
+
+    final regularCount = allUsers.where((u) => (u['employee_type'] ?? '') != 'local' && !(u['username'] ?? '').toString().toUpperCase().startsWith('TEMP')).length;
+    final localCount = allUsers.where((u) => (u['employee_type'] ?? '') == 'local' || (u['username'] ?? '').toString().toUpperCase().startsWith('TEMP')).length;
 
     return Scaffold(
       backgroundColor: _bg,
@@ -581,9 +592,95 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
                     ),
                   ),
 
+                  // ── Segmented Toggle: Regular vs Local Staff (TEMP) ───────────
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                    child: Container(
+                      height: 42,
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: _border),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _employeeTypeFilter = 'regular'),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: _employeeTypeFilter == 'regular' ? _card : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(9),
+                                  boxShadow: _employeeTypeFilter == 'regular'
+                                      ? [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 1))]
+                                      : null,
+                                ),
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.badge_outlined,
+                                      size: 15,
+                                      color: _employeeTypeFilter == 'regular' ? _textPrimary : _textSecond,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Regular ($regularCount)',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: _employeeTypeFilter == 'regular' ? FontWeight.w700 : FontWeight.w500,
+                                        color: _employeeTypeFilter == 'regular' ? _textPrimary : _textSecond,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _employeeTypeFilter = 'local'),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: _employeeTypeFilter == 'local' ? _card : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(9),
+                                  boxShadow: _employeeTypeFilter == 'local'
+                                      ? [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 1))]
+                                      : null,
+                                ),
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.access_time_filled_rounded,
+                                      size: 15,
+                                      color: _employeeTypeFilter == 'local' ? const Color(0xFFEA580C) : _textSecond,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Local Staff ($localCount)',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: _employeeTypeFilter == 'local' ? FontWeight.w700 : FontWeight.w500,
+                                        color: _employeeTypeFilter == 'local' ? const Color(0xFFEA580C) : _textSecond,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
                   // ── Search bar ──────────────────────────────────────────────
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
                     child: Container(
                       height: 44,
                       decoration: BoxDecoration(
@@ -926,7 +1023,32 @@ class _EmployeeSelectionPageState extends State<EmployeeSelectionPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      nameWidget,
+                      Row(
+                        children: [
+                          Flexible(child: nameWidget),
+                          if ((user['employee_type'] ?? '') == 'local' ||
+                              (user['username'] ?? '').toString().toUpperCase().startsWith('TEMP')) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7ED),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFFFDBA74)),
+                              ),
+                              child: const Text(
+                                'TEMP',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFFEA580C),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                       if (fullName.isNotEmpty && fullName != name)
                         Padding(
                           padding: const EdgeInsets.only(top: 1),

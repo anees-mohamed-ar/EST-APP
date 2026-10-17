@@ -200,11 +200,12 @@ class ApiService {
   }
 
 
-  static Future<List<dynamic>> getUsersOnly({String? date}) async {
+  static Future<List<dynamic>> getUsersOnly({String? date, String? employeeType}) async {
     try {
       final queryParams = {
         'users_only': 'true',
         if (date != null) 'date': date,
+        if (employeeType != null) 'employee_type': employeeType,
       };
 
       final uri = Uri.parse(
@@ -532,6 +533,7 @@ class ApiService {
     int limit = 20,
     int offset = 0,
     String? search,
+    String? employeeType,
   }) async {
     try {
       final queryParams = <String, String>{
@@ -541,6 +543,7 @@ class ApiService {
       if (startDate != null) queryParams['startDate'] = startDate;
       if (endDate != null) queryParams['endDate'] = endDate;
       if (search != null && search.isNotEmpty) queryParams['search'] = search;
+      if (employeeType != null && employeeType.isNotEmpty) queryParams['employee_type'] = employeeType;
 
       final uri = Uri.parse(
         '$baseUrl/admin/attendance',

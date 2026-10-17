@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import '../services/api_service.dart';
-import '../widgets/shimmer_text.dart';
 import '../widgets/electric_refresh_indicator.dart';
 import 'package:intl/intl.dart';
 
@@ -30,10 +29,8 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> with TickerProv
   Map<String, dynamic>? monthlyData;
   bool isLoading = true;
 
-  // Date range selection
-  DateTime? _startDate;
-  DateTime? _endDate;
-  bool _isCustomRange = false;
+  // Month selection (defaults to current month)
+  DateTime _selectedMonth = DateTime.now();
 
   // Sophisticated monochrome palette
   static const Color _pureWhite = Color(0xFFFFFFFF);
@@ -41,7 +38,6 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> with TickerProv
   static const Color _lightGray = Color(0xFFEEEEEE);
   static const Color _mediumGray = Color(0xFF9E9E9E);
   static const Color _charcoal = Color(0xFF2C2C2C);
-  static const Color _pureBlack = Color(0xFF000000);
 
   // Accent colors kept subtle
   static const Color _softGreen = Color(0xFF2E7D32);
@@ -53,6 +49,9 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> with TickerProv
   @override
   void initState() {
     super.initState();
+    if (widget.dateRange?.start != null) {
+      _selectedMonth = widget.dateRange!.start;
+    }
     _tabCtrl = TabController(length: 2, vsync: this);
     _tabCtrl.addListener(() {
       if (_tabCtrl.index != _tab) {
@@ -77,13 +76,7 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> with TickerProv
     setState(() => isLoading = true);
     try {
       final userId = widget.userId ?? storage.read('user')['id'];
-      final startDate = _startDate ?? widget.dateRange?.start;
-      final endDate = _endDate ?? widget.dateRange?.end;
-
-      final now = DateTime.now();
-      final yearMonth = startDate != null
-          ? '${startDate.year}-${startDate.month.toString().padLeft(2, '0')}'
-          : '${now.year}-${now.month.toString().padLeft(2, '0')}';
+      final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
 
       final data = await ApiService.getMonthlySummary(
         userId,
@@ -107,37 +100,177 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> with TickerProv
     }
   }
 
-  Future<void> _showDateRangePicker() async {
-    final DateTimeRange? picked = await showDateRangePicker(
+  Future<void> _showMonthPicker() async {
+    final now = DateTime.now();
+    int pickerYear = _selectedMonth.year;
+
+    await showModalBottomSheet(
       context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      initialDateRange: _startDate != null && _endDate != null
-          ? DateTimeRange(start: _startDate!, end: _endDate!)
-          : null,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: _charcoal,
-              onPrimary: _pureWhite,
-              surface: _pureWhite,
-              onSurface: _charcoal,
-            ),
-          ),
-          child: child!,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final months = [
+              'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+            ];
+
+            return Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              decoration: const BoxDecoration(
+                color: _pureWhite,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: _lightGray,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Select Report Month',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: _charcoal,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      if (_selectedMonth.year != now.year || _selectedMonth.month != now.month)
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.pop(context);
+                            setState(() {
+                              _selectedMonth = DateTime(now.year, now.month, 1);
+                            });
+                            _loadMonthlyData();
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: _lightGray.withOpacity(0.6),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              'Current Month',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: _charcoal,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.chevron_left_rounded, color: _charcoal),
+                        onPressed: pickerYear > 2020
+                            ? () => setModalState(() => pickerYear--)
+                            : null,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          '$pickerYear',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: _charcoal,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.chevron_right_rounded, color: _charcoal),
+                        onPressed: pickerYear < now.year
+                            ? () => setModalState(() => pickerYear++)
+                            : null,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 4,
+                      childAspectRatio: 1.8,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                    ),
+                    itemCount: 12,
+                    itemBuilder: (context, idx) {
+                      final monthIndex = idx + 1;
+                      final isFuture = pickerYear == now.year && monthIndex > now.month;
+                      final isSelected = _selectedMonth.year == pickerYear && _selectedMonth.month == monthIndex;
+                      final isCurrentMonth = now.year == pickerYear && now.month == monthIndex;
+
+                      return GestureDetector(
+                        onTap: isFuture
+                            ? null
+                            : () {
+                                Navigator.pop(context);
+                                setState(() {
+                                  _selectedMonth = DateTime(pickerYear, monthIndex, 1);
+                                });
+                                _loadMonthlyData();
+                              },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? _charcoal
+                                : isCurrentMonth
+                                    ? _offWhite
+                                    : isFuture
+                                        ? _pureWhite
+                                        : _offWhite,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected
+                                  ? _charcoal
+                                  : isCurrentMonth
+                                      ? _charcoal.withOpacity(0.3)
+                                      : _lightGray,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            months[idx],
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: isSelected || isCurrentMonth ? FontWeight.w800 : FontWeight.w600,
+                              color: isSelected
+                                  ? _pureWhite
+                                  : isFuture
+                                      ? _mediumGray.withOpacity(0.4)
+                                      : _charcoal,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
-
-    if (picked != null) {
-      setState(() {
-        _startDate = picked.start;
-        _endDate = picked.end;
-        _isCustomRange = true;
-      });
-      _loadMonthlyData();
-    }
   }
 
   @override
@@ -672,37 +805,89 @@ class _MonthlySummaryPageState extends State<MonthlySummaryPage> with TickerProv
   }
 
   Widget _buildPeriodSelector() {
-    return GestureDetector(
-      onTap: _showDateRangePicker,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: _pureWhite,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _lightGray, width: 1),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.calendar_month, size: 20, color: _charcoal),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    final now = DateTime.now();
+    final isCurrent = _selectedMonth.year == now.year && _selectedMonth.month == now.month;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(
+        color: _pureWhite,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _lightGray, width: 1),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left_rounded, size: 24, color: _charcoal),
+            onPressed: () {
+              setState(() {
+                _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1, 1);
+              });
+              _loadMonthlyData();
+            },
+            padding: const EdgeInsets.all(4),
+            constraints: const BoxConstraints(),
+            tooltip: 'Previous Month',
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _showMonthPicker,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text('REPORT PERIOD',
-                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: _mediumGray)),
-                  Text(
-                    _isCustomRange
-                        ? '${DateFormat('dd MMM').format(_startDate!)} - ${DateFormat('dd MMM yyyy').format(_endDate!)}'
-                        : DateFormat('MMMM yyyy').format(DateTime.now()),
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _charcoal),
+                  const Icon(Icons.calendar_month, size: 20, color: _charcoal),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'REPORT MONTH',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: _mediumGray,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                      Text(
+                        DateFormat('MMMM yyyy').format(_selectedMonth),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: _charcoal,
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: _mediumGray),
                 ],
               ),
             ),
-            const Icon(Icons.keyboard_arrow_down_rounded, color: _mediumGray),
-          ],
-        ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: Icon(
+              Icons.chevron_right_rounded,
+              size: 24,
+              color: isCurrent ? _mediumGray.withOpacity(0.3) : _charcoal,
+            ),
+            onPressed: isCurrent
+                ? null
+                : () {
+                    setState(() {
+                      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
+                    });
+                    _loadMonthlyData();
+                  },
+            padding: const EdgeInsets.all(4),
+            constraints: const BoxConstraints(),
+            tooltip: 'Next Month',
+          ),
+        ],
       ),
     );
   }

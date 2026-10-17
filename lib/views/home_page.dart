@@ -20,6 +20,7 @@ import 'package:confetti/confetti.dart';
 import 'package:lottie/lottie.dart';
 import 'payroll_download_page.dart';
 import '../constants/app_config.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -1033,6 +1034,8 @@ class _HomePageState extends State<HomePage>
     final employeeName = (userData['employee_name'] ?? userData['full_name'] ?? userData['name'] ?? userData['username'] ?? 'User').toString().trim();
     final username = userData['username']?.toString() ?? 'User';
     final initial = employeeName.isNotEmpty ? employeeName[0].toUpperCase() : (username.isNotEmpty ? username[0].toUpperCase() : '?');
+    final isTempEmployee = (userData['employee_type'] ?? '') == 'local' ||
+        username.toUpperCase().startsWith('TEMP');
 
     return Drawer(
       backgroundColor: _pureWhite,
@@ -1155,6 +1158,27 @@ class _HomePageState extends State<HomePage>
                     fontWeight: FontWeight.w500,
                   ),
                 ),
+                if ((userData['employee_type'] ?? '') == 'local' ||
+                    username.toUpperCase().startsWith('TEMP')) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF7ED),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFFDBA74)),
+                    ),
+                    child: const Text(
+                      'LOCAL STAFF (TEMP)',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFEA580C),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1182,54 +1206,15 @@ class _HomePageState extends State<HomePage>
                     Get.toNamed('/profile');
                   },
                 ),
-                ListTile(
-                  leading: const Icon(
-                    Icons.beach_access_outlined,
-                    color: _charcoal,
-                    size: 24,
-                  ),
-                  title: const Text(
-                    'Holidays',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: _charcoal,
-                    ),
-                  ),
-                  onTap: () {
-                    Get.back();
-                    Get.toNamed('/holidays');
-                  },
-                ),
-                //TODO: Re-enable when leave feature is ready
-                ListTile(
-                  leading: const Icon(
-                    Icons.event_note_outlined,
-                    color: _charcoal,
-                    size: 24,
-                  ),
-                  title: const Text(
-                    'My Leave',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: _charcoal,
-                    ),
-                  ),
-                  onTap: () {
-                    Get.back();
-                    Get.toNamed('/leave');
-                  },
-                ),
-                if (userData['is_ot_eligible'] == 0)
+                if (!isTempEmployee) ...[
                   ListTile(
                     leading: const Icon(
-                      Icons.timer_outlined,
+                      Icons.beach_access_outlined,
                       color: _charcoal,
                       size: 24,
                     ),
                     title: const Text(
-                      'Request Permission',
+                      'Holidays',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -1238,37 +1223,17 @@ class _HomePageState extends State<HomePage>
                     ),
                     onTap: () {
                       Get.back();
-                      Get.toNamed('/permission');
+                      Get.toNamed('/holidays');
                     },
                   ),
-                ListTile(
-                  leading: const Icon(
-                    Icons.leaderboard_outlined,
-                    color: _charcoal,
-                    size: 24,
-                  ),
-                  title: const Text(
-                    'OT Leaderboard',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: _charcoal,
-                    ),
-                  ),
-                  onTap: () {
-                    Get.back();
-                    Get.toNamed('/leaderboard');
-                  },
-                ),
-                if (userData['driver_access'] == 'yes')
                   ListTile(
                     leading: const Icon(
-                      Icons.directions_car_outlined,
+                      Icons.event_note_outlined,
                       color: _charcoal,
                       size: 24,
                     ),
                     title: const Text(
-                      'Vehicle & Fuel',
+                      'My Leave',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -1277,81 +1242,141 @@ class _HomePageState extends State<HomePage>
                     ),
                     onTap: () {
                       Get.back();
-                      Get.toNamed('/vehicle');
+                      Get.toNamed('/leave');
                     },
                   ),
-                if (userData['accept_access'] == 1)
+                  if (userData['is_ot_eligible'] == 0)
+                    ListTile(
+                      leading: const Icon(
+                        Icons.timer_outlined,
+                        color: _charcoal,
+                        size: 24,
+                      ),
+                      title: const Text(
+                        'Request Permission',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _charcoal,
+                        ),
+                      ),
+                      onTap: () {
+                        Get.back();
+                        Get.toNamed('/permission');
+                      },
+                    ),
                   ListTile(
                     leading: const Icon(
-                      Icons.fact_check_outlined,
+                      Icons.leaderboard_outlined,
                       color: _charcoal,
                       size: 24,
                     ),
                     title: const Text(
-                      'Approvals',
+                      'OT Leaderboard',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                         color: _charcoal,
                       ),
                     ),
-                    trailing: _isLoadingApprovalCounts
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: _charcoal,
-                            ),
-                          )
-                        : (_pendingLeaveCount + _pendingPermissionCount) > 0
-                        ? Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _softRed,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${_pendingLeaveCount + _pendingPermissionCount}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                    onTap: () {
+                      Get.back();
+                      Get.toNamed('/leaderboard');
+                    },
+                  ),
+                  if (userData['driver_access'] == 'yes')
+                    ListTile(
+                      leading: const Icon(
+                        Icons.directions_car_outlined,
+                        color: _charcoal,
+                        size: 24,
+                      ),
+                      title: const Text(
+                        'Vehicle & Fuel',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _charcoal,
+                        ),
+                      ),
+                      onTap: () {
+                        Get.back();
+                        Get.toNamed('/vehicle');
+                      },
+                    ),
+                  if (userData['accept_access'] == 1)
+                    ListTile(
+                      leading: const Icon(
+                        Icons.fact_check_outlined,
+                        color: _charcoal,
+                        size: 24,
+                      ),
+                      title: const Text(
+                        'Approvals',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _charcoal,
+                        ),
+                      ),
+                      trailing: _isLoadingApprovalCounts
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: _charcoal,
                               ),
-                            ),
-                          )
-                        : null,
-                    onTap: () async {
+                            )
+                          : (_pendingLeaveCount + _pendingPermissionCount) > 0
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _softRed,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${_pendingLeaveCount + _pendingPermissionCount}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            )
+                          : null,
+                      onTap: () async {
+                        Get.back();
+                        await Get.to(() => const ReviewPage());
+                        if (mounted) {
+                          await Future.delayed(const Duration(milliseconds: 300));
+                          await _loadApprovalCounts();
+                        }
+                      },
+                    ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.settings_outlined,
+                      color: _charcoal,
+                      size: 24,
+                    ),
+                    title: const Text(
+                      'Settings',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _charcoal,
+                      ),
+                    ),
+                    onTap: () {
                       Get.back();
-                      await Get.to(() => const ReviewPage());
-                      if (mounted) {
-                        await Future.delayed(const Duration(milliseconds: 300));
-                        await _loadApprovalCounts();
-                      }
+                      Get.to(() => SettingsPage());
                     },
                   ),
-                ListTile(
-                  leading: const Icon(
-                    Icons.settings_outlined,
-                    color: _charcoal,
-                    size: 24,
-                  ),
-                  title: const Text(
-                    'Settings',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: _charcoal,
-                    ),
-                  ),
-                  onTap: () {
-                    Get.back();
-                    Get.to(() => SettingsPage());
-                  },
-                ),
+                ],
                 ListTile(
                   leading: const Icon(
                     Icons.logout_rounded,
@@ -1378,14 +1403,22 @@ class _HomePageState extends State<HomePage>
                     children: [
                       const Divider(color: _lightGray, height: 1),
                       const SizedBox(height: 16),
-                      Text(
-                        'Developed by iMatrix Technologies Pvt Ltd © ${DateTime.now().year}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: _mediumGray,
+                      GestureDetector(
+                        onTap: () async {
+                          final uri = Uri.parse('https://www.imatrixtechnologies.com');
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        child: Text(
+                          'Developed by iMatrix Technologies Pvt Ltd © ${DateTime.now().year}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: _mediumGray,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
-                        textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -1791,39 +1824,46 @@ class _HomePageState extends State<HomePage>
                                 ),
                               ],
 
-                              const SizedBox(height: 16),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _buildActionCard(
-                                      icon: Icons.beach_access_outlined,
-                                      label: 'Leaves',
-                                      sublabel: 'Request Day off',
-                                      onTap: () => Get.toNamed('/leave'),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  if (userData['is_ot_eligible'] == 0)
+                              // ── Leaves & Permissions quick action (hidden for temporary/local staff) ──
+                              if ((userData['employee_type'] ?? '') != 'local' &&
+                                  !(userData['username'] ?? '').toString().toUpperCase().startsWith('TEMP')) ...[
+                                const SizedBox(height: 16),
+                                Row(
+                                  children: [
                                     Expanded(
                                       child: _buildActionCard(
-                                        icon: Icons.timer_outlined,
-                                        label: 'Permissions',
-                                        sublabel: 'Request 3hr permission',
-                                        onTap: () => Get.toNamed('/permission'),
+                                        icon: Icons.beach_access_outlined,
+                                        label: 'Leaves',
+                                        sublabel: 'Request Day off',
+                                        onTap: () => Get.toNamed('/leave'),
                                       ),
-                                    )
-                                  else
-                                    Expanded(child: Container()),
-                                ],
-                              ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    if (userData['is_ot_eligible'] == 0)
+                                      Expanded(
+                                        child: _buildActionCard(
+                                          icon: Icons.timer_outlined,
+                                          label: 'Permissions',
+                                          sublabel: 'Request 3hr permission',
+                                          onTap: () => Get.toNamed('/permission'),
+                                        ),
+                                      )
+                                    else
+                                      Expanded(child: Container()),
+                                  ],
+                                ),
+                              ],
 
                               const SizedBox(height: 24),
 
                               _buildMonthlySummaryCard(),
 
-                              // ── My Payroll download card (all users & admin) ─────
-                              const SizedBox(height: 12),
-                              _buildPayrollDownloadCard(userData),
+                              // ── My Payroll download card (hidden for local employees) ─────
+                              if ((userData['employee_type'] ?? '') != 'local' &&
+                                  !(userData['username'] ?? '').toString().toUpperCase().startsWith('TEMP')) ...[
+                                const SizedBox(height: 12),
+                                _buildPayrollDownloadCard(userData),
+                              ],
 
                               const SizedBox(height: 24),
 
