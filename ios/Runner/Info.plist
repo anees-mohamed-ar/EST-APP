@@ -50,6 +50,10 @@
 	<key>NSCameraUsageDescription</key>
 	<string>MEPL-Track requires access to your camera to take attendance selfies and capture vehicle odometer photos.</string>
 
+	<!-- Microphone Permission (Required by Camera plugin when bundling AVFoundation) -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MEPL-Track requires microphone access for camera audio functionality if video recording is enabled.</string>
+
 	<!-- Photo Library Permissions -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>MEPL-Track requires access to your photo library to select photos for attendance, vehicle documentation, and profile verification.</string>
@@ -61,10 +65,16 @@
 	<string>MEPL-Track needs your location to verify your presence at designated work sites during check-in, check-out, and shift tracking.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>MEPL-Track requires location access to record accurate site attendance and shift locations.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>MEPL-Track requires location access to record accurate site attendance and shift locations.</string>
 
 	<!-- Biometric / Face ID Permission -->
 	<key>NSFaceIDUsageDescription</key>
 	<string>MEPL-Track uses Face ID / Touch ID for quick and secure biometric login to your account.</string>
+
+	<!-- App Store Export Compliance (Exempt from encryption documentation) -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 
 	<!-- File Sharing & Document Interaction (PDF / Payroll / Excel) -->
 	<key>UIFileSharingEnabled</key>
@@ -72,10 +82,12 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 
-	<!-- Network Security Configuration (HTTP & HTTPS) -->
+	<!-- Network Security Configuration (HTTP & HTTPS & Local Dev) -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 
