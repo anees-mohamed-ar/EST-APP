@@ -426,6 +426,151 @@ class ApiService {
     }
   }
 
+  /// Submit Rental IN with Dio real-time progress
+  static Future<Map<String, dynamic>> submitRentalIn({
+    required String materialId,
+    required String materialName,
+    String? category,
+    bool isNewMaterial = false,
+    required String userId,
+    required String userName,
+    required String description,
+    required String inSiteId,
+    required String inSiteName,
+    required String inTime,
+    required String imagePath,
+    String? lat,
+    String? lng,
+    void Function(int sent, int total)? onProgress,
+    int maxRetries = 3,
+  }) async {
+    try {
+      final formData = FormData.fromMap({
+        'material_id': materialId,
+        'material_name': materialName,
+        if (category != null && category.isNotEmpty) 'category': category,
+        'is_new_material': isNewMaterial ? 'true' : 'false',
+        'user_id': userId,
+        'user_name': userName,
+        'description': description,
+        'in_site_id': inSiteId,
+        'in_site_name': inSiteName,
+        'in_time': inTime,
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
+        if (imagePath.isNotEmpty)
+          'photo': await MultipartFile.fromFile(
+            imagePath,
+            filename: 'rental_in.jpg',
+          ),
+      });
+
+      final response = await _postWithRetry(
+        url: '$baseUrl/rental/in',
+        data: formData,
+        onSendProgress: (sent, total) => onProgress?.call(sent, total),
+        maxRetries: maxRetries,
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return response.data as Map<String, dynamic>;
+      }
+      throw Exception('Failed to record rental in: ${response.data}');
+    } on DioException catch (e) {
+      String errorMessage = 'Upload failed';
+      if (e.response != null && e.response!.data != null) {
+        final data = e.response!.data;
+        if (data is Map) {
+          errorMessage = data['error'] ?? data['message'] ?? e.message ?? 'Unknown server error';
+        } else {
+          errorMessage = data.toString();
+        }
+      } else {
+        errorMessage = e.message ?? 'Connection failed';
+      }
+      throw Exception(errorMessage);
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Submit Rental OUT with Dio real-time progress (supports optional invoice/document attachments)
+  static Future<Map<String, dynamic>> submitRentalOut({
+    required String rentalId,
+    required String outUserId,
+    required String outUserName,
+    required String outDescription,
+    required String outSiteId,
+    required String outSiteName,
+    required String outTime,
+    required String imagePath,
+    List<String>? attachmentPaths,
+    String? lat,
+    String? lng,
+    void Function(int sent, int total)? onProgress,
+    int maxRetries = 3,
+  }) async {
+    try {
+      final formData = FormData.fromMap({
+        'rental_id': rentalId,
+        'out_user_id': outUserId,
+        'out_user_name': outUserName,
+        'out_description': outDescription,
+        'out_site_id': outSiteId,
+        'out_site_name': outSiteName,
+        'out_time': outTime,
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
+        if (imagePath.isNotEmpty)
+          'photo': await MultipartFile.fromFile(
+            imagePath,
+            filename: 'rental_out.jpg',
+          ),
+      });
+
+      if (attachmentPaths != null && attachmentPaths.isNotEmpty) {
+        for (final path in attachmentPaths) {
+          if (path.isNotEmpty) {
+            final fileName = path.split(RegExp(r'[/\\]')).last;
+            formData.files.add(
+              MapEntry(
+                'attachments',
+                await MultipartFile.fromFile(path, filename: fileName),
+              ),
+            );
+          }
+        }
+      }
+
+      final response = await _postWithRetry(
+        url: '$baseUrl/rental/out',
+        data: formData,
+        onSendProgress: (sent, total) => onProgress?.call(sent, total),
+        maxRetries: maxRetries,
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return response.data as Map<String, dynamic>;
+      }
+      throw Exception('Failed to record rental out: ${response.data}');
+    } on DioException catch (e) {
+      String errorMessage = 'Upload failed';
+      if (e.response != null && e.response!.data != null) {
+        final data = e.response!.data;
+        if (data is Map) {
+          errorMessage = data['error'] ?? data['message'] ?? e.message ?? 'Unknown server error';
+        } else {
+          errorMessage = data.toString();
+        }
+      } else {
+        errorMessage = e.message ?? 'Connection failed';
+      }
+      throw Exception(errorMessage);
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
   // Get today's attendance records for current user
   static Future<List<dynamic>> getTodaysAttendance(int userId) async {
     try {
@@ -1092,6 +1237,32 @@ class ApiService {
       } else {
         throw Exception('Failed to load employee: ${response.body}');
       }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // ── Rental Admin Endpoints ───────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> getAdminRentalOverview({
+    String? startDate,
+    String? endDate,
+  }) async {
+    try {
+      final params = <String, String>{};
+      if (startDate != null) params['startDate'] = startDate;
+      if (endDate != null) params['endDate'] = endDate;
+
+      final uri = Uri.parse('$baseUrl/rental/admin/overview').replace(
+        queryParameters: params.isNotEmpty ? params : null,
+      );
+
+      final response = await http.get(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      throw Exception('Failed to load rental overview');
     } catch (e) {
       throw Exception('Network error: $e');
     }

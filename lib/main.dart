@@ -19,6 +19,8 @@ import 'views/holidays_page.dart';
 import 'views/leaderboard_page.dart';
 import 'views/profile_page.dart';
 import 'views/vehicle_page.dart';
+import 'views/rental_activity_page.dart';
+import 'views/admin_rental_reports_page.dart';
 import 'views/admin_vehicle_reports_page.dart';
 import 'views/leave_page.dart';
 import 'views/permission_page.dart';
@@ -70,6 +72,7 @@ class MyApp extends StatelessWidget {
       scrollBehavior: const _SmoothScrollBehavior(),
       getPages: [
         GetPage(name: '/fleet-reports', page: () => AdminVehicleReportsPage()),
+        GetPage(name: '/admin-rental-reports', page: () => const AdminRentalReportsPage()),
         GetPage(name: '/splash', page: () => SplashScreen()),
         GetPage(name: '/', page: () => LoginPage()),
         GetPage(name: '/login', page: () => LoginPage()),
@@ -94,6 +97,7 @@ class MyApp extends StatelessWidget {
         GetPage(name: '/leaderboard', page: () => const LeaderboardPage()),
         GetPage(name: '/profile', page: () => ProfilePage()),
         GetPage(name: '/vehicle', page: () => VehiclePage()),
+        GetPage(name: '/rental-activity', page: () => const RentalActivityPage()),
         GetPage(name: '/leave', page: () => const LeavePage()),
         GetPage(name: '/permission', page: () => const PermissionPage()),
         GetPage(name: '/hierarchy', page: () => const HierarchyManagementPage()),

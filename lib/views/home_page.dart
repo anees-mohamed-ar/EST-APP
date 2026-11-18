@@ -1304,6 +1304,47 @@ class _HomePageState extends State<HomePage>
                         Get.toNamed('/vehicle');
                       },
                     ),
+                  if ((userData['employee_type'] ?? '') != 'local' &&
+                      !(userData['username'] ?? '').toString().toUpperCase().startsWith('TEMP'))
+                    ListTile(
+                      leading: const Icon(
+                        Icons.construction_outlined,
+                        color: _charcoal,
+                        size: 24,
+                      ),
+                      title: const Text(
+                        'Rental Materials',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _charcoal,
+                        ),
+                      ),
+                      onTap: () {
+                        Get.back();
+                        Get.toNamed('/rental-activity');
+                      },
+                    ),
+                  if (userData['role']?.toString().toLowerCase() == 'admin')
+                    ListTile(
+                      leading: const Icon(
+                        Icons.assignment_outlined,
+                        color: _charcoal,
+                        size: 24,
+                      ),
+                      title: const Text(
+                        'Rental Reports',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _charcoal,
+                        ),
+                      ),
+                      onTap: () {
+                        Get.back();
+                        Get.toNamed('/admin-rental-reports');
+                      },
+                    ),
                   if (userData['accept_access'] == 1)
                     ListTile(
                       leading: const Icon(
@@ -1763,99 +1804,123 @@ class _HomePageState extends State<HomePage>
                               _buildSectionHeader('QUICK ACTIONS'),
                               const SizedBox(height: 16),
 
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: _buildCheckInButton(
+                              Builder(
+                                builder: (context) {
+                                  final role = userData['role']?.toString().toLowerCase();
+                                  final isAdmin = role == 'admin';
+                                  final isNotLocal = (userData['employee_type'] ?? '') != 'local' &&
+                                      !(userData['username'] ?? '').toString().toUpperCase().startsWith('TEMP');
+
+                                  final List<Widget> actionCards = [];
+
+                                  // Slot 1: Check In / Check Out (Mandatory primary action)
+                                  actionCards.add(
+                                    _buildCheckInButton(
                                       hasCheckedIn,
                                       hasCheckedOut,
                                     ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  if ((userData['role']?.toString().toLowerCase() ==
-                                      'admin'))
-                                    Expanded(
-                                      child: _buildActionCard(
+                                  );
+
+                                  // Slot 2: Dashboard (Admin) or Attendance History (Regular/Others)
+                                  if (isAdmin) {
+                                    actionCards.add(
+                                      _buildActionCard(
                                         icon: Icons.dashboard_outlined,
                                         label: 'Dashboard',
                                         sublabel: 'View overview',
-                                        onTap: () =>
-                                            Get.toNamed('/admin-dashboard'),
+                                        onTap: () => Get.toNamed('/admin-dashboard'),
                                       ),
-                                    )
-                                  else
-                                    Expanded(
-                                      child: _buildActionCard(
+                                    );
+                                  } else {
+                                    actionCards.add(
+                                      _buildActionCard(
                                         icon: Icons.calendar_today_outlined,
                                         label: 'History',
                                         sublabel: 'View records',
-                                        onTap: () =>
-                                            Get.toNamed('/daily-attendance'),
+                                        onTap: () => Get.toNamed('/daily-attendance'),
                                       ),
-                                    ),
-                                ],
-                              ),
+                                    );
+                                  }
 
-                              if ((userData['role']?.toString().toLowerCase() ==
-                                  'admin')) ...[
-                                const SizedBox(height: 16),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _buildActionCard(
+                                  // Admin-specific items
+                                  if (isAdmin) {
+                                    actionCards.add(
+                                      _buildActionCard(
                                         icon: Icons.admin_panel_settings_outlined,
                                         label: 'Admin Panel',
                                         sublabel: 'Manage attendance',
-                                        onTap: () =>
-                                            Get.toNamed('/admin-attendance'),
+                                        onTap: () => Get.toNamed('/admin-attendance'),
                                       ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: _buildActionCard(
+                                    );
+                                    actionCards.add(
+                                      _buildActionCard(
                                         icon: Icons.directions_car_outlined,
                                         label: 'Vehicle Reports',
                                         sublabel: 'Trips & Fuel logs',
                                         onTap: () => Get.toNamed('/fleet-reports'),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                    );
+                                    actionCards.add(
+                                      _buildActionCard(
+                                        icon: Icons.assignment_outlined,
+                                        label: 'Rental Reports',
+                                        sublabel: 'Equipment & live audit',
+                                        onTap: () => Get.toNamed('/admin-rental-reports'),
+                                      ),
+                                    );
+                                  }
 
-                              // ── Leaves & Permissions quick action (hidden for temporary/local staff) ──
-                              if ((userData['employee_type'] ?? '') != 'local' &&
-                                  !(userData['username'] ?? '').toString().toUpperCase().startsWith('TEMP')) ...[
-                                const SizedBox(height: 16),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _buildActionCard(
+                                  // Leaves (hidden for temporary/local staff)
+                                  if (isNotLocal) {
+                                    actionCards.add(
+                                      _buildActionCard(
                                         icon: Icons.beach_access_outlined,
                                         label: 'Leaves',
                                         sublabel: 'Request Day off',
                                         onTap: () => Get.toNamed('/leave'),
                                       ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    if (userData['is_ot_eligible'] == 0)
-                                      Expanded(
-                                        child: _buildActionCard(
+                                    );
+
+                                    // Permissions (only if not OT eligible)
+                                    if (userData['is_ot_eligible'] == 0) {
+                                      actionCards.add(
+                                        _buildActionCard(
                                           icon: Icons.timer_outlined,
                                           label: 'Permissions',
                                           sublabel: 'Request 3hr permission',
                                           onTap: () => Get.toNamed('/permission'),
                                         ),
-                                      )
-                                    else
-                                      Expanded(child: Container()),
-                                  ],
-                                ),
-                              ],
+                                      );
+                                    }
+
+                                    // Rental Materials (Equipment In / Out)
+                                    actionCards.add(
+                                      _buildActionCard(
+                                        icon: Icons.construction_outlined,
+                                        label: 'Rental Materials',
+                                        sublabel: 'Equipment In / Out',
+                                        onTap: () => Get.toNamed('/rental-activity'),
+                                      ),
+                                    );
+
+                                    // Vehicle & Fuel (if driver access granted)
+                                    if (userData['driver_access'] == 'yes') {
+                                      actionCards.add(
+                                        _buildActionCard(
+                                          icon: Icons.directions_car_outlined,
+                                          label: 'Vehicle & Fuel',
+                                          sublabel: 'Trips & Fuel logs',
+                                          onTap: () => Get.toNamed('/vehicle'),
+                                        ),
+                                      );
+                                    }
+                                  }
+
+                                  return _buildQuickActionsGrid(actionCards);
+                                },
+                              ),
 
                               const SizedBox(height: 24),
-
                               _buildMonthlySummaryCard(),
 
                               // ── My Payroll download card (hidden for local employees) ─────
@@ -3531,6 +3596,34 @@ class _HomePageState extends State<HomePage>
     );
   }
 
+  Widget _buildQuickActionsGrid(List<Widget> actionCards) {
+    if (actionCards.isEmpty) return const SizedBox.shrink();
+
+    final List<Widget> rows = [];
+    for (int i = 0; i < actionCards.length; i += 2) {
+      if (i > 0) {
+        rows.add(const SizedBox(height: 12));
+      }
+      final first = actionCards[i];
+      final second = (i + 1 < actionCards.length) ? actionCards[i + 1] : null;
+
+      rows.add(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: first),
+            const SizedBox(width: 12),
+            Expanded(child: second ?? Container()),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: rows,
+    );
+  }
   Widget _buildMonthlyInsights() {
     if (performanceData == null || !performanceData!.containsKey('streak')) {
       return Container(

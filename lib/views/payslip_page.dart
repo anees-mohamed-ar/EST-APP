@@ -546,8 +546,8 @@ class _PayslipPageState extends State<PayslipPage> with TickerProviderStateMixin
       final coff        = _plain(slip['coff']);
       final lop         = _plain(slip['actual_leave']);
       final exHrs       = _plain(slip['ex_hrs']);
-      final cl          = _plain(slip['closing_cl']);
-      final el          = _plain(slip['closing_el']);
+      final cl          = _plain(slip['deduction_cl']);
+      final el          = _plain(slip['deduction_el']);
       final mealDays    = _plain(slip['lunch_tea_days']);
 
       String amt(double v) => NumberFormat('#,##,##0', 'en_IN').format(v);

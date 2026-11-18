@@ -199,7 +199,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
   void _showIpConfigModal() {
     final currentUrl = ApiService.baseUrl;
     final uri = Uri.tryParse(currentUrl);
-    final ipCtrl = TextEditingController(text: uri?.host ?? dotenv.env['DEFAULT_SERVER_IP'] ?? '192.168.1.166');
+    final ipCtrl = TextEditingController(text: uri?.host ?? dotenv.env['DEFAULT_SERVER_IP'] ?? '103.160.163.70');
     final portCtrl = TextEditingController(
       text: uri?.port.toString() ?? dotenv.env['DEFAULT_SERVER_PORT'] ?? '8002',
     );
